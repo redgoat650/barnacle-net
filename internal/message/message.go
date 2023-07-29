@@ -1,14 +1,18 @@
 package message
 
+import "time"
+
 type Message struct {
 	Command  *Command  `json:"command,omitempty"`
 	Response *Response `json:"response,omitempty"`
 }
 
 type Command struct {
-	Op      Op              `json:"op"`
-	Opaque  uint64          `json:"opaque"`
-	Payload *CommandPayload `json:"payload,omitempty"`
+	Op         Op              `json:"op"`
+	Opaque     uint64          `json:"opaque"`
+	Payload    *CommandPayload `json:"payload,omitempty"`
+	SubmitTime *time.Time      `json:"submitTime,omitempty"`
+	ArriveTime *time.Time      `json:"arriveTime,omitempty"`
 }
 
 type Op string
@@ -40,10 +44,12 @@ type ListNodesPayload struct {
 }
 
 type Response struct {
-	Command *Command         `json:"command,omitempty"`
-	Success bool             `json:"success"`
-	Payload *ResponsePayload `json:"payload,omitempty"`
-	Error   string           `json:"error,omitempty"`
+	Command    *Command         `json:"command,omitempty"`
+	Success    bool             `json:"success"`
+	Payload    *ResponsePayload `json:"payload,omitempty"`
+	Error      string           `json:"error,omitempty"`
+	SubmitTime *time.Time       `json:"submitTime,omitempty"`
+	ArriveTime *time.Time       `json:"arriveTime,omitempty"`
 }
 
 type ResponsePayload struct {
@@ -58,14 +64,11 @@ type GetImageResponsePayload struct {
 }
 
 type IdentifyResponsePayload struct {
-	Role     Role   `json:"role"`
-	Username string `json:"username"`
-	Hostname string `json:"hostname"`
-	NumCPU   int    `json:"numCPU"`
+	Identity Identity `json:"identity,omitempty"`
 }
 
 type ListNodesResponsePayload struct {
-	Nodes map[string]*IdentifyResponsePayload
+	Nodes map[string]NodeStatus `json:"nodes,omitempty"`
 }
 
 type Role string
@@ -74,3 +77,16 @@ const (
 	NodeRole   = "node"
 	ClientRole = "client"
 )
+
+type NodeStatus struct {
+	UpdateTime time.Time `json:"updateTime,omitempty"`
+	Identity   Identity  `json:"identity,omitempty"`
+}
+
+type Identity struct {
+	Role     Role   `json:"role"`
+	Username string `json:"username"`
+	Hostname string `json:"hostname"`
+	NumCPU   int    `json:"numCPU"`
+	PID      int    `json:"pid"`
+}

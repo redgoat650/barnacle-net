@@ -26,9 +26,9 @@ type Server struct {
 }
 
 type connInfo struct {
-	t        *transport.Transport
-	identity *message.IdentifyResponsePayload
-	mu       *sync.Mutex
+	t          *transport.Transport
+	nodeStatus *message.NodeStatus
+	mu         *sync.Mutex
 }
 
 func NewServer() *Server {
@@ -83,7 +83,7 @@ func makeWSHandler(s *Server) func(w http.ResponseWriter, r *http.Request) {
 			t.Shutdown()
 		}()
 
-		err = s.identify(remoteAddr)
+		err = s.identifyRemoteAddr(remoteAddr)
 		if err != nil {
 			log.Println("error identifying connected client:", err)
 			return
@@ -149,7 +149,7 @@ func (s *Server) handleListNodes(cmd *message.Command, t *transport.Transport) (
 
 	if refreshIDs {
 		for remoteAddr, connInfo := range s.conns {
-			err := s.identifyOverConn(connInfo)
+			err := s.updateConnIdentity(connInfo)
 			if err != nil {
 				log.Println("Identify failed for", remoteAddr, "error:", err)
 				continue
@@ -157,11 +157,12 @@ func (s *Server) handleListNodes(cmd *message.Command, t *transport.Transport) (
 		}
 	}
 
-	nodeIDs := make(map[string]*message.IdentifyResponsePayload)
+	nodeStatusMap := make(map[string]message.NodeStatus)
 	for remoteAddr, connInfo := range s.conns {
 		connInfo.mu.Lock()
-		if id := connInfo.identity; id != nil {
-			nodeIDs[remoteAddr] = id
+
+		if ns := connInfo.nodeStatus; ns != nil {
+			nodeStatusMap[remoteAddr] = *ns
 		}
 
 		connInfo.mu.Unlock()
@@ -169,28 +170,42 @@ func (s *Server) handleListNodes(cmd *message.Command, t *transport.Transport) (
 
 	return &message.ResponsePayload{
 		ListNodesResponse: &message.ListNodesResponsePayload{
-			Nodes: nodeIDs,
+			Nodes: nodeStatusMap,
 		},
 	}, nil
 }
 
-func (s *Server) identify(remoteAddr string) error {
+func (s *Server) identifyRemoteAddr(remoteAddr string) error {
 	connInfo, ok := s.lookupConn(remoteAddr)
 	if !ok {
 		return fmt.Errorf("could not identify unknown connection: %s", remoteAddr)
 	}
 
-	return s.identifyOverConn(connInfo)
+	return s.updateConnIdentity(connInfo)
 }
 
-func (s *Server) identifyOverConn(connInfo *connInfo) error {
+func (s *Server) updateConnIdentity(connInfo *connInfo) error {
+	ns, err := s.identifyOverConn(connInfo)
+	if err != nil {
+		return err
+	}
+
+	connInfo.mu.Lock()
+	defer connInfo.mu.Unlock()
+
+	connInfo.nodeStatus = ns
+
+	return nil
+}
+
+func (s *Server) identifyOverConn(connInfo *connInfo) (*message.NodeStatus, error) {
 	c := &message.Command{
 		Op: message.Identify,
 	}
 
 	resp, err := connInfo.t.SendCommand(c)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
@@ -201,33 +216,35 @@ func (s *Server) identifyOverConn(connInfo *connInfo) error {
 		return s.handleIdentifyResponse(resp, connInfo)
 
 	case <-ctx.Done():
-		return ctx.Err()
+		return nil, ctx.Err()
 	}
 }
 
-func (s *Server) handleIdentifyResponse(resp *message.Response, connInfo *connInfo) error {
+func (s *Server) handleIdentifyResponse(resp *message.Response, connInfo *connInfo) (*message.NodeStatus, error) {
 	if resp == nil {
-		return fmt.Errorf("inflight command response lost")
+		return nil, fmt.Errorf("inflight command response lost")
 	}
 
 	if resp.Command.Op != message.Identify {
-		return fmt.Errorf("response is not for identify command: %s", resp.Command.Op)
+		return nil, fmt.Errorf("response is not for identify command: %s", resp.Command.Op)
 	}
 
 	if resp.Error != "" {
-		return fmt.Errorf("error in identity response: %s", resp.Error)
+		return nil, fmt.Errorf("error in identity response: %s", resp.Error)
 	}
 
-	if resp.Payload.IdentifyResponse == nil {
-		return fmt.Errorf("identify response payload is empty")
+	if resp.Payload == nil || resp.Payload.IdentifyResponse == nil {
+		return nil, fmt.Errorf("identify response payload is empty")
 	}
 
-	connInfo.mu.Lock()
-	defer connInfo.mu.Unlock()
+	if resp.ArriveTime == nil {
+		return nil, fmt.Errorf("malformed response - arrival time unset")
+	}
 
-	connInfo.identity = resp.Payload.IdentifyResponse
-
-	return nil
+	return &message.NodeStatus{
+		UpdateTime: *resp.ArriveTime,
+		Identity:   resp.Payload.IdentifyResponse.Identity,
+	}, nil
 }
 
 func (s *Server) lookupConn(addr string) (*connInfo, bool) {

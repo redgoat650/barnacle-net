@@ -109,10 +109,13 @@ func makeIDResponsePayload() (*message.IdentifyResponsePayload, error) {
 	}
 
 	return &message.IdentifyResponsePayload{
-		Role:     message.NodeRole,
-		Username: user.Name,
-		Hostname: host,
-		NumCPU:   runtime.NumCPU(),
+		Identity: message.Identity{
+			Role:     message.NodeRole,
+			Username: user.Name,
+			Hostname: host,
+			NumCPU:   runtime.NumCPU(),
+			PID:      os.Getpid(),
+		},
 	}, nil
 }
 

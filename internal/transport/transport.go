@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/url"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/redgoat650/barnacle-net/internal/inflight"
@@ -96,10 +97,16 @@ func (t *Transport) readJSON() error {
 }
 
 func (t *Transport) handleCommand(c *message.Command) {
+	tNow := time.Now()
+	c.ArriveTime = &tNow
+
 	t.incomingCmds <- c
 }
 
 func (t *Transport) handleResponse(r *message.Response) {
+	tNow := time.Now()
+	r.ArriveTime = &tNow
+
 	ch, ok := t.inflight.Get(r.Command.Opaque)
 	if !ok {
 		log.Println("No one waiting for response")
@@ -112,8 +119,10 @@ func (t *Transport) handleResponse(r *message.Response) {
 }
 
 func (t *Transport) SendCommand(c *message.Command) (<-chan *message.Response, error) {
-	id, ch := t.inflight.Register()
+	tNow := time.Now()
+	c.SubmitTime = &tNow
 
+	id, ch := t.inflight.Register()
 	c.Opaque = id
 
 	m := &message.Message{
@@ -130,10 +139,12 @@ func (t *Transport) SendCommand(c *message.Command) (<-chan *message.Response, e
 }
 
 func (t *Transport) SendResponse(rp *message.ResponsePayload, gotErr error, cmd *message.Command) error {
+	tNow := time.Now()
 	m := &message.Message{
 		Response: &message.Response{
-			Payload: rp,
-			Command: cmd,
+			Payload:    rp,
+			Command:    cmd,
+			SubmitTime: &tNow,
 		},
 	}
 
