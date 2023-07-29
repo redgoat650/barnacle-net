@@ -1,7 +1,9 @@
 package transport
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"log"
 	"net/url"
 	"sync"
@@ -17,6 +19,9 @@ type Transport struct {
 	inflight     *inflight.Inflight
 	conn         *websocket.Conn
 	wMu          *sync.Mutex
+
+	stopping bool
+	stopMu   *sync.RWMutex
 }
 
 func NewTransportConn(server, path string) (*Transport, error) {
@@ -32,6 +37,7 @@ func NewTransportConn(server, path string) (*Transport, error) {
 		inflight:     inflight.NewInflight(),
 		conn:         c,
 		wMu:          new(sync.Mutex),
+		stopMu:       new(sync.RWMutex),
 	}
 
 	go t.listen()
@@ -45,6 +51,7 @@ func NewTransportForConn(c *websocket.Conn) *Transport {
 		inflight:     inflight.NewInflight(),
 		conn:         c,
 		wMu:          new(sync.Mutex),
+		stopMu:       new(sync.RWMutex),
 	}
 
 	go t.listen()
@@ -52,26 +59,97 @@ func NewTransportForConn(c *websocket.Conn) *Transport {
 	return t
 }
 
-func (t *Transport) Shutdown() {
-	t.conn.Close()
-	// close(t.incomingCmds)
+func (t *Transport) Stopping() bool {
+	t.stopMu.RLock()
+	defer t.stopMu.RUnlock()
+
+	return t.stopping
+}
+
+func (t *Transport) shutdown() {
+	t.stopMu.Lock()
+	defer t.stopMu.Unlock()
+
+	t.stopping = true
 }
 
 func (t *Transport) GracefullyClose() error {
-	return t.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+	// Mark this transport as in the process of shutting down.
+	t.shutdown()
+	// t.stopMu.Lock()
+	// defer t.stopMu.Unlock()
+	// t.stopping = true
+
+	// Write a close statement to the websocket.
+	err := t.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+
+	// // Notify all local callers who are waiting for a response that will never arrive.
+	// t.sendClosingRepliesToAllInflight()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	select {
+	case <-t.incomingCmds:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("timed out waiting for channel to close: %s; %s", err, ctx.Err())
+	}
+}
+
+func (t *Transport) sendClosingRepliesToAllInflight() {
+	for _, id := range t.inflight.Keys() {
+		ch, ok := t.inflight.Get(id)
+		if !ok {
+			// It's possible this command was responded to after Keys() was called. Ignore and continue.
+			continue
+		}
+
+		tNow := time.Now()
+		r := &message.Response{
+			Error:      "transport shutting down",
+			Success:    false,
+			ArriveTime: &tNow,
+		}
+
+		ch <- r
+	}
 }
 
 func (t *Transport) IncomingCmds() <-chan *message.Command {
 	return t.incomingCmds
 }
 
+func (t *Transport) handleClosedWebsocket() {
+	// Accept no more outgoing commands.
+	t.shutdown()
+
+	// Formally close the websocket
+	log.Println("websocket close:", t.conn.Close())
+
+	// Notify anyone waiting on a response that no response will be arriving.
+	t.sendClosingRepliesToAllInflight()
+
+	// Notify callers that no further incoming commands are expected.
+	close(t.incomingCmds)
+}
+
 func (t *Transport) listen() {
-	defer close(t.incomingCmds)
+	defer t.handleClosedWebsocket()
 
 	for {
 		err := t.readJSON()
 		if err != nil {
-			log.Println("error reading message from conn:", err)
+			closeErr := &websocket.CloseError{}
+			if errors.As(err, &closeErr) {
+				if closeErr.Code == websocket.CloseNormalClosure {
+					log.Println("normal closure message received")
+					err = nil
+				}
+				return
+			}
+
+			log.Println("Error reading message from conn:", err)
 			return
 		}
 	}
@@ -100,6 +178,14 @@ func (t *Transport) handleCommand(c *message.Command) {
 	tNow := time.Now()
 	c.ArriveTime = &tNow
 
+	if t.Stopping() {
+		err := t.SendResponse(nil, errors.New("not accepting commands due to closing websocket"), c)
+		if err != nil {
+			log.Println("Sending socket-closed response:", err)
+		}
+		return
+	}
+
 	t.incomingCmds <- c
 }
 
@@ -119,6 +205,15 @@ func (t *Transport) handleResponse(r *message.Response) {
 }
 
 func (t *Transport) SendCommand(c *message.Command) (<-chan *message.Response, error) {
+	// Keep the lock held until the message is sent; can't gracefully stop
+	// until this process completes.
+	t.stopMu.RLock()
+	defer t.stopMu.RUnlock()
+
+	if t.stopping {
+		return nil, errors.New("transport is stopping and not accepting new outbound commands")
+	}
+
 	tNow := time.Now()
 	c.SubmitTime = &tNow
 

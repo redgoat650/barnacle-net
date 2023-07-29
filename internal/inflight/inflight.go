@@ -50,3 +50,16 @@ func (i *Inflight) Get(id uint64) (chan *message.Response, bool) {
 
 	return ch, ok
 }
+
+func (i *Inflight) Keys() []uint64 {
+	var ret []uint64
+
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	for k := range i.m {
+		ret = append(ret, k)
+	}
+
+	return ret
+}

@@ -79,8 +79,6 @@ func makeWSHandler(s *Server) func(w http.ResponseWriter, r *http.Request) {
 			s.connMu.Lock()
 			delete(s.conns, remoteAddr)
 			s.connMu.Unlock()
-
-			t.Shutdown()
 		}()
 
 		err = s.identifyRemoteAddr(remoteAddr)
@@ -89,20 +87,15 @@ func makeWSHandler(s *Server) func(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		s.handleIncomingCommands(remoteAddr)
+		s.handleIncomingCommands(t)
 	}
 }
 
-func (s *Server) handleIncomingCommands(remoteAddr string) {
+func (s *Server) handleIncomingCommands(t *transport.Transport) {
 	for {
-		c, ok := s.lookupConn(remoteAddr)
-		if !ok {
-			log.Println("no conn info stored in server for", remoteAddr)
-		}
-
 		select {
-		case cmd := <-c.t.IncomingCmds():
-			err := s.handleCommand(cmd, c.t)
+		case cmd := <-t.IncomingCmds():
+			err := s.handleCommand(cmd, t)
 			if err != nil {
 				log.Println("error handling command:", err)
 				return
