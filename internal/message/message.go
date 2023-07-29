@@ -21,6 +21,7 @@ type Op string
 const (
 	SetImageCmd Op = "setImage"
 	GetImageCmd Op = "getImage"
+	Identify    Op = "identify"
 )
 
 type SetImagePayload struct {
@@ -32,11 +33,6 @@ type GetImagePayload struct {
 	Name string `json:"name"`
 }
 
-type GetImageResponsePayload struct {
-	Name      string `json:"name"`
-	ImageData []byte `json:"imgData,omitempty"`
-}
-
 type Response struct {
 	Command *Command         `json:"command,omitempty"`
 	Success bool             `json:"success"`
@@ -46,4 +42,21 @@ type Response struct {
 
 type ResponsePayload struct {
 	GetImageResponse *GetImageResponsePayload `json:"getImageResponse,omitempty"`
+	IdentifyResponse *IdentifyResponsePayload `json:"identifyResponse,omitempty"`
 }
+
+type GetImageResponsePayload struct {
+	Name      string `json:"name"`
+	ImageData []byte `json:"imgData,omitempty"`
+}
+
+type IdentifyResponsePayload struct {
+	Role Role `json:"role"`
+}
+
+type Role string
+
+const (
+	NodeRole   = "node"
+	ClientRole = "client"
+)
