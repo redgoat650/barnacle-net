@@ -11,18 +11,20 @@ type Command struct {
 	Payload *CommandPayload `json:"payload,omitempty"`
 }
 
-type CommandPayload struct {
-	SetImagePayload *SetImagePayload `json:"setImagePayload,omitempty"`
-	GetImagePayload *GetImagePayload `json:"getImagePayload,omitempty"`
-}
-
 type Op string
 
 const (
 	SetImageCmd Op = "setImage"
 	GetImageCmd Op = "getImage"
 	Identify    Op = "identify"
+	ListNodes   Op = "listNodes"
 )
+
+type CommandPayload struct {
+	SetImagePayload  *SetImagePayload  `json:"setImagePayload,omitempty"`
+	GetImagePayload  *GetImagePayload  `json:"getImagePayload,omitempty"`
+	ListNodesPayload *ListNodesPayload `json:"listNodesPayload,omitempty"`
+}
 
 type SetImagePayload struct {
 	Name       string   `json:"name"`
@@ -33,6 +35,10 @@ type GetImagePayload struct {
 	Name string `json:"name"`
 }
 
+type ListNodesPayload struct {
+	RefreshIdentities bool `json:"refreshIdentities,omitempty"`
+}
+
 type Response struct {
 	Command *Command         `json:"command,omitempty"`
 	Success bool             `json:"success"`
@@ -41,8 +47,9 @@ type Response struct {
 }
 
 type ResponsePayload struct {
-	GetImageResponse *GetImageResponsePayload `json:"getImageResponse,omitempty"`
-	IdentifyResponse *IdentifyResponsePayload `json:"identifyResponse,omitempty"`
+	GetImageResponse  *GetImageResponsePayload  `json:"getImageResponse,omitempty"`
+	IdentifyResponse  *IdentifyResponsePayload  `json:"identifyResponse,omitempty"`
+	ListNodesResponse *ListNodesResponsePayload `json:"listNodesResponse,omitempty"`
 }
 
 type GetImageResponsePayload struct {
@@ -55,6 +62,10 @@ type IdentifyResponsePayload struct {
 	Username string `json:"username"`
 	Hostname string `json:"hostname"`
 	NumCPU   int    `json:"numCPU"`
+}
+
+type ListNodesResponsePayload struct {
+	Nodes map[string]*IdentifyResponsePayload
 }
 
 type Role string

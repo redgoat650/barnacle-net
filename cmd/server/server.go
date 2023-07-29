@@ -14,9 +14,13 @@ import (
 	"github.com/redgoat650/barnacle-net/internal/transport"
 )
 
+const (
+	defaultTimeout = 10 * time.Second
+)
+
 type Server struct {
 	conns  map[string]*connInfo
-	connMu *sync.Mutex
+	connMu *sync.RWMutex
 	ctx    context.Context
 	cancel context.CancelFunc
 }
@@ -32,7 +36,7 @@ func NewServer() *Server {
 
 	return &Server{
 		conns:  make(map[string]*connInfo),
-		connMu: new(sync.Mutex),
+		connMu: new(sync.RWMutex),
 		ctx:    ctx,
 		cancel: cancel,
 	}
@@ -98,7 +102,7 @@ func (s *Server) handleIncomingCommands(remoteAddr string) {
 
 		select {
 		case cmd := <-c.t.IncomingCmds():
-			err := s.handleCommand(cmd)
+			err := s.handleCommand(cmd, c.t)
 			if err != nil {
 				log.Println("error handling command:", err)
 				return
@@ -111,13 +115,63 @@ func (s *Server) handleIncomingCommands(remoteAddr string) {
 	}
 }
 
-func (s *Server) handleCommand(cmd *message.Command) error {
+func (s *Server) handleCommand(cmd *message.Command, t *transport.Transport) error {
 	if cmd == nil {
 		return errors.New("transport shutting down websocket conn")
 	}
 
+	var (
+		rp  *message.ResponsePayload
+		err error
+	)
+
+	switch cmd.Op {
+	case message.ListNodes:
+		rp, err = s.handleListNodes(cmd, t)
+	default:
+		return fmt.Errorf("unrecognized command: %s", cmd.Op)
+	}
+
 	log.Println("handling command", cmd.Op)
-	return nil
+	return t.SendResponse(rp, err, cmd)
+}
+
+func (s *Server) handleListNodes(cmd *message.Command, t *transport.Transport) (*message.ResponsePayload, error) {
+	p := cmd.Payload
+
+	refreshIDs := false
+	if p != nil && p.ListNodesPayload != nil {
+		refreshIDs = p.ListNodesPayload.RefreshIdentities
+	}
+
+	s.connMu.RLock()
+	defer s.connMu.RUnlock()
+
+	if refreshIDs {
+		for remoteAddr, connInfo := range s.conns {
+			err := s.identifyOverConn(connInfo)
+			if err != nil {
+				log.Println("Identify failed for", remoteAddr, "error:", err)
+				continue
+			}
+		}
+	}
+
+	nodeIDs := make(map[string]*message.IdentifyResponsePayload)
+	for remoteAddr, connInfo := range s.conns {
+		connInfo.mu.Lock()
+		if id := connInfo.identity; id != nil {
+			nodeIDs[remoteAddr] = id
+		}
+
+		connInfo.mu.Unlock()
+	}
+
+	return &message.ResponsePayload{
+		ListNodesResponse: &message.ListNodesResponsePayload{
+			Nodes: nodeIDs,
+		},
+	}, nil
 }
 
 func (s *Server) identify(remoteAddr string) error {
@@ -126,6 +180,10 @@ func (s *Server) identify(remoteAddr string) error {
 		return fmt.Errorf("could not identify unknown connection: %s", remoteAddr)
 	}
 
+	return s.identifyOverConn(connInfo)
+}
+
+func (s *Server) identifyOverConn(connInfo *connInfo) error {
 	c := &message.Command{
 		Op: message.Identify,
 	}
@@ -135,7 +193,7 @@ func (s *Server) identify(remoteAddr string) error {
 		return err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer cancel()
 
 	select {
