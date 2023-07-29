@@ -51,7 +51,10 @@ type GetImageResponsePayload struct {
 }
 
 type IdentifyResponsePayload struct {
-	Role Role `json:"role"`
+	Role     Role   `json:"role"`
+	Username string `json:"username"`
+	Hostname string `json:"hostname"`
+	NumCPU   int    `json:"numCPU"`
 }
 
 type Role string

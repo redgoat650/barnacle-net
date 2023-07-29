@@ -3,6 +3,7 @@ package transport
 import (
 	"errors"
 	"log"
+	"net/url"
 	"sync"
 
 	"github.com/gorilla/websocket"
@@ -15,6 +16,26 @@ type Transport struct {
 	inflight     *inflight.Inflight
 	conn         *websocket.Conn
 	wMu          *sync.Mutex
+}
+
+func NewTransportConn(server, path string) (*Transport, error) {
+	// Dial the websocket at host/path.
+	URL := url.URL{Scheme: "ws", Host: server, Path: path}
+	c, _, err := websocket.DefaultDialer.Dial(URL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	t := &Transport{
+		incomingCmds: make(chan *message.Command, 5),
+		inflight:     inflight.NewInflight(),
+		conn:         c,
+		wMu:          new(sync.Mutex),
+	}
+
+	go t.listen()
+
+	return t, nil
 }
 
 func NewTransportForConn(c *websocket.Conn) *Transport {
@@ -32,7 +53,11 @@ func NewTransportForConn(c *websocket.Conn) *Transport {
 
 func (t *Transport) Shutdown() {
 	t.conn.Close()
-	close(t.incomingCmds)
+	// close(t.incomingCmds)
+}
+
+func (t *Transport) GracefullyClose() error {
+	return t.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 }
 
 func (t *Transport) IncomingCmds() <-chan *message.Command {
@@ -40,6 +65,8 @@ func (t *Transport) IncomingCmds() <-chan *message.Command {
 }
 
 func (t *Transport) listen() {
+	defer close(t.incomingCmds)
+
 	for {
 		err := t.readJSON()
 		if err != nil {
@@ -79,22 +106,44 @@ func (t *Transport) handleResponse(r *message.Response) {
 		return
 	}
 
-	ch <- *r
+	ch <- r
+
+	close(ch)
 }
 
-func (t *Transport) SendCommand(c *message.Command) (<-chan message.Response, error) {
+func (t *Transport) SendCommand(c *message.Command) (<-chan *message.Response, error) {
 	id, ch := t.inflight.Register()
 
 	c.Opaque = id
 
-	// Prevent concurrent writes to the websocket.
-	t.wMu.Lock()
-	defer t.wMu.Unlock()
+	m := &message.Message{
+		Command: c,
+	}
 
-	err := t.conn.WriteJSON(c)
+	err := t.sendMessage(m)
 	if err != nil {
+		t.inflight.Unregister(id)
 		return nil, err
 	}
 
 	return ch, nil
+}
+
+func (t *Transport) SendResponse(rp *message.ResponsePayload, gotErr error, cmd *message.Command) error {
+	m := &message.Message{
+		Response: &message.Response{
+			Payload: rp,
+			Command: cmd,
+		},
+	}
+
+	return t.sendMessage(m)
+}
+
+func (t *Transport) sendMessage(m *message.Message) error {
+	// Prevent concurrent writes to the websocket.
+	t.wMu.Lock()
+	defer t.wMu.Unlock()
+
+	return t.conn.WriteJSON(m)
 }

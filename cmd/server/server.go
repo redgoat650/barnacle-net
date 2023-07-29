@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -16,6 +17,8 @@ import (
 type Server struct {
 	conns  map[string]*connInfo
 	connMu *sync.Mutex
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 type connInfo struct {
@@ -25,10 +28,18 @@ type connInfo struct {
 }
 
 func NewServer() *Server {
+	ctx, cancel := context.WithCancel(context.Background())
+
 	return &Server{
 		conns:  make(map[string]*connInfo),
 		connMu: new(sync.Mutex),
+		ctx:    ctx,
+		cancel: cancel,
 	}
+}
+
+func (s *Server) Shutdown() {
+	s.cancel()
 }
 
 func homePage(w http.ResponseWriter, r *http.Request) {
@@ -71,14 +82,48 @@ func makeWSHandler(s *Server) func(w http.ResponseWriter, r *http.Request) {
 		err = s.identify(remoteAddr)
 		if err != nil {
 			log.Println("error identifying connected client:", err)
+			return
+		}
+
+		s.handleIncomingCommands(remoteAddr)
+	}
+}
+
+func (s *Server) handleIncomingCommands(remoteAddr string) {
+	for {
+		c, ok := s.lookupConn(remoteAddr)
+		if !ok {
+			log.Println("no conn info stored in server for", remoteAddr)
+		}
+
+		select {
+		case cmd := <-c.t.IncomingCmds():
+			err := s.handleCommand(cmd)
+			if err != nil {
+				log.Println("error handling command:", err)
+				return
+			}
+
+		case <-s.ctx.Done():
+			log.Println("context canceled:", s.ctx.Err())
+			return
 		}
 	}
+}
+
+func (s *Server) handleCommand(cmd *message.Command) error {
+	if cmd == nil {
+		return errors.New("transport shutting down websocket conn")
+	}
+
+	log.Println("handling command", cmd.Op)
+	return nil
 }
 
 func (s *Server) identify(remoteAddr string) error {
 	connInfo, ok := s.lookupConn(remoteAddr)
 	if !ok {
-		return fmt.Errorf("could not identify unknown connection", connInfo)
+		return fmt.Errorf("could not identify unknown connection: %s", remoteAddr)
 	}
 
 	c := &message.Command{
@@ -102,7 +147,11 @@ func (s *Server) identify(remoteAddr string) error {
 	}
 }
 
-func (s *Server) handleIdentifyResponse(resp message.Response, connInfo *connInfo) error {
+func (s *Server) handleIdentifyResponse(resp *message.Response, connInfo *connInfo) error {
+	if resp == nil {
+		return fmt.Errorf("inflight command response lost")
+	}
+
 	if resp.Command.Op != message.Identify {
 		return fmt.Errorf("response is not for identify command: %s", resp.Command.Op)
 	}
