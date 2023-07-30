@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"context"
@@ -29,6 +29,12 @@ type connInfo struct {
 	t          *transport.Transport
 	nodeStatus *message.NodeStatus
 	mu         *sync.Mutex
+}
+
+func RunServer() {
+	s := NewServer()
+	setupRoutes(s)
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
 func NewServer() *Server {
@@ -283,10 +289,4 @@ func setupRoutes(s *Server) {
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
-}
-
-func main() {
-	s := NewServer()
-	setupRoutes(s)
-	log.Fatal(http.ListenAndServe(":8080", nil))
 }

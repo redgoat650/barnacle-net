@@ -21,6 +21,23 @@ type Barnacle struct {
 	t             *transport.Transport
 }
 
+func RunBarnacle() {
+	server := viper.GetString(serverConfigKey)
+	path := viper.GetString(pathConfigKey)
+	fmt.Println("Connecting to:", server, "at", path)
+
+	b, err := NewBarnacle(server, path)
+	if err != nil {
+		log.Println("instantiating barnacle:", err)
+		os.Exit(1)
+	}
+
+	// Block while handling incoming commands.
+	err = b.handleIncomingCmds()
+
+	log.Println("Node shutting down:", err)
+}
+
 func NewBarnacle(server, path string) (*Barnacle, error) {
 	t, err := transport.NewTransportConn(server, path)
 	if err != nil {
@@ -142,23 +159,6 @@ const (
 	serverConfigKey = "server"
 	pathConfigKey   = "path"
 )
-
-func main() {
-	server := viper.GetString(serverConfigKey)
-	path := viper.GetString(pathConfigKey)
-	fmt.Println("Connecting to:", server, "at", path)
-
-	b, err := NewBarnacle(server, path)
-	if err != nil {
-		log.Println("instantiating barnacle:", err)
-		os.Exit(1)
-	}
-
-	// Block while handling incoming commands.
-	err = b.handleIncomingCmds()
-
-	log.Println("Node shutting down:", err)
-}
 
 func init() {
 	viper.SetDefault(serverConfigKey, "localhost:8080")
