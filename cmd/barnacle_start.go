@@ -24,11 +24,13 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/redgoat650/barnacle-net/internal/barnacle"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
-// startCmd represents the start command
-var startCmd = &cobra.Command{
+// barnacleStartCmd represents the start command
+var barnacleStartCmd = &cobra.Command{
 	Use:   "start",
 	Short: "A brief description of your command",
 	Long: `A longer description that spans multiple lines and likely contains examples
@@ -38,12 +40,13 @@ Cobra is a CLI library for Go that empowers applications.
 This application is a tool to generate the needed files
 to quickly create a Cobra application.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("running server")
+		fmt.Println("start called")
+		barnacle.RunBarnacle(viper.GetViper())
 	},
 }
 
 func init() {
-	serverCmd.AddCommand(startCmd)
+	barnacleCmd.AddCommand(barnacleStartCmd)
 
 	// Here you will define your flags and configuration settings.
 
