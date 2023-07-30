@@ -1,4 +1,4 @@
-package main
+package barnacle
 
 import (
 	"errors"
@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 
+	"github.com/redgoat650/barnacle-net/internal/config"
 	"github.com/redgoat650/barnacle-net/internal/message"
 	"github.com/redgoat650/barnacle-net/internal/python"
 	"github.com/redgoat650/barnacle-net/internal/transport"
@@ -21,9 +22,9 @@ type Barnacle struct {
 	t             *transport.Transport
 }
 
-func RunBarnacle() {
-	server := viper.GetString(serverConfigKey)
-	path := viper.GetString(pathConfigKey)
+func RunBarnacle(v *viper.Viper) {
+	server := v.GetString(config.ServerConfigKey)
+	path := v.GetString(config.WSPathConfigKey)
 	fmt.Println("Connecting to:", server, "at", path)
 
 	b, err := NewBarnacle(server, path)
@@ -153,14 +154,4 @@ func getServerConnInfo() (string, string, error) {
 	path := arguments[2]
 
 	return server, path, nil
-}
-
-const (
-	serverConfigKey = "server"
-	pathConfigKey   = "path"
-)
-
-func init() {
-	viper.SetDefault(serverConfigKey, "localhost:8080")
-	viper.SetDefault(pathConfigKey, "/ws")
 }

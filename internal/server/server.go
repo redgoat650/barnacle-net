@@ -10,8 +10,10 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/redgoat650/barnacle-net/internal/config"
 	"github.com/redgoat650/barnacle-net/internal/message"
 	"github.com/redgoat650/barnacle-net/internal/transport"
+	"github.com/spf13/viper"
 )
 
 const (
@@ -31,10 +33,16 @@ type connInfo struct {
 	mu         *sync.Mutex
 }
 
-func RunServer() {
+func RunServer(v *viper.Viper) {
+	port := v.GetString(config.PortConfigKey) // ":8080"
+	addr := ":" + port
+
 	s := NewServer()
 	setupRoutes(s)
-	log.Fatal(http.ListenAndServe(":8080", nil))
+
+	log.Println("Serving at", addr)
+
+	log.Fatal(http.ListenAndServe(addr, nil))
 }
 
 func NewServer() *Server {
