@@ -1,4 +1,7 @@
 FROM mcr.microsoft.com/devcontainers/go:0-1-bullseye
 
-RUN curl -fsSL https://get.docker.com -o get-docker.sh \
-    && sudo sh get-docker.sh
+COPY library-scripts/docker-debian.sh /tmp/library-scripts/
+ENV DOCKER_BUILDKIT=1
+RUN apt-get update && bash /tmp/library-scripts/docker-debian.sh
+ENTRYPOINT ["/usr/local/share/docker-init.sh"]
+CMD ["sleep", "infinity"]

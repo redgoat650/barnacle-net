@@ -3,8 +3,12 @@
 {
 	"name": "barnacle-net-dev",
 	// Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
-	"build": { "dockerfile": "Dockerfile" }
+	"build": { "dockerfile": "Dockerfile" },
 	// "image": "mcr.microsoft.com/devcontainers/go:0-1-bullseye",
+
+	"runArgs": ["--init"],
+	"mounts": [ "source=/var/run/docker.sock,target=/var/run/docker-host.sock,type=bind" ],
+	"overrideCommand": false
 
 	// Features to add to the dev container. More info: https://containers.dev/features.
 	// "features": {},
