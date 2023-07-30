@@ -8,11 +8,13 @@ type Message struct {
 }
 
 type Command struct {
-	Op         Op              `json:"op"`
-	Opaque     uint64          `json:"opaque"`
-	Payload    *CommandPayload `json:"payload,omitempty"`
-	SubmitTime *time.Time      `json:"submitTime,omitempty"`
-	ArriveTime *time.Time      `json:"arriveTime,omitempty"`
+	Op      Op              `json:"op"`
+	Payload *CommandPayload `json:"payload,omitempty"`
+
+	// Set by transport layer.
+	Opaque     uint64     `json:"opaque"`
+	SubmitTime *time.Time `json:"submitTime,omitempty"`
+	ArriveTime *time.Time `json:"arriveTime,omitempty"`
 }
 
 type Op string
@@ -22,12 +24,14 @@ const (
 	GetImageCmd Op = "getImage"
 	Identify    Op = "identify"
 	ListNodes   Op = "listNodes"
+	Register    Op = "register"
 )
 
 type CommandPayload struct {
 	SetImagePayload  *SetImagePayload  `json:"setImagePayload,omitempty"`
 	GetImagePayload  *GetImagePayload  `json:"getImagePayload,omitempty"`
 	ListNodesPayload *ListNodesPayload `json:"listNodesPayload,omitempty"`
+	RegisterPayload  *RegisterPayload  `json:"registerPayload,omitempty"`
 }
 
 type SetImagePayload struct {
@@ -43,10 +47,14 @@ type ListNodesPayload struct {
 	RefreshIdentities bool `json:"refreshIdentities,omitempty"`
 }
 
+type RegisterPayload struct {
+	Identity Identity `json:"identity,omitempty"`
+}
+
 type Response struct {
 	Command    *Command         `json:"command,omitempty"`
-	Success    bool             `json:"success"`
 	Payload    *ResponsePayload `json:"payload,omitempty"`
+	Success    bool             `json:"success"`
 	Error      string           `json:"error,omitempty"`
 	SubmitTime *time.Time       `json:"submitTime,omitempty"`
 	ArriveTime *time.Time       `json:"arriveTime,omitempty"`
@@ -84,9 +92,18 @@ type NodeStatus struct {
 }
 
 type Identity struct {
-	Role     Role   `json:"role"`
-	Username string `json:"username"`
-	Hostname string `json:"hostname"`
-	NumCPU   int    `json:"numCPU"`
-	PID      int    `json:"pid"`
+	Role     Role         `json:"role"`
+	Username string       `json:"username"`
+	Hostname string       `json:"hostname"`
+	NumCPU   int          `json:"numCPU"`
+	PID      int          `json:"pid"`
+	Display  *DisplayInfo `json:"display,omitempty"`
+}
+
+type DisplayInfo struct {
+	DisplayResponding bool          `json:"displayResponding"`
+	Colors            int           `json:"colorCount"`
+	X                 int           `json:"xResolution"`
+	Y                 int           `json:"yResolution"`
+	RefreshEstimate   time.Duration `json:"refreshEstimate"`
 }

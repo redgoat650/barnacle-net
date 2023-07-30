@@ -33,7 +33,7 @@ type connInfo struct {
 	mu         *sync.Mutex
 }
 
-func RunServer(v *viper.Viper) {
+func RunServer(v *viper.Viper) error {
 	port := v.GetString(config.PortConfigKey) // ":8080"
 	addr := ":" + port
 
@@ -42,7 +42,7 @@ func RunServer(v *viper.Viper) {
 
 	log.Println("Serving at", addr)
 
-	log.Fatal(http.ListenAndServe(addr, nil))
+	return http.ListenAndServe(addr, nil)
 }
 
 func NewServer() *Server {
@@ -77,39 +77,34 @@ func makeWSHandler(s *Server) func(w http.ResponseWriter, r *http.Request) {
 
 		// Connection received; log connection event.
 		remoteAddr := ws.RemoteAddr().String()
-		log.Println("Client Connected", remoteAddr)
+		log.Println("client Connected", remoteAddr)
 
 		t := transport.NewTransportForConn(ws)
 
 		s.connMu.Lock()
-		s.conns[remoteAddr] = &connInfo{
+		c := &connInfo{
 			t:  t,
 			mu: new(sync.Mutex),
 		}
+		s.conns[remoteAddr] = c
 		s.connMu.Unlock()
 
 		defer func() {
-			log.Println("Shutting down client connection:", remoteAddr)
+			log.Println("shutting down client connection:", remoteAddr)
 			s.connMu.Lock()
 			delete(s.conns, remoteAddr)
 			s.connMu.Unlock()
 		}()
 
-		err = s.identifyRemoteAddr(remoteAddr)
-		if err != nil {
-			log.Println("error identifying connected client:", err)
-			return
-		}
-
-		s.handleIncomingCommands(t)
+		s.handleIncomingCommands(c)
 	}
 }
 
-func (s *Server) handleIncomingCommands(t *transport.Transport) {
+func (s *Server) handleIncomingCommands(c *connInfo) {
 	for {
 		select {
-		case cmd := <-t.IncomingCmds():
-			err := s.handleCommand(cmd, t)
+		case cmd := <-c.t.IncomingCmds():
+			err := s.handleIncomingCommand(cmd, c)
 			if err != nil {
 				log.Println("error handling command:", err)
 				return
@@ -122,7 +117,7 @@ func (s *Server) handleIncomingCommands(t *transport.Transport) {
 	}
 }
 
-func (s *Server) handleCommand(cmd *message.Command, t *transport.Transport) error {
+func (s *Server) handleIncomingCommand(cmd *message.Command, c *connInfo) error {
 	if cmd == nil {
 		return errors.New("transport shutting down websocket conn")
 	}
@@ -134,16 +129,41 @@ func (s *Server) handleCommand(cmd *message.Command, t *transport.Transport) err
 
 	switch cmd.Op {
 	case message.ListNodes:
-		rp, err = s.handleListNodes(cmd, t)
+		rp, err = s.handleListNodes(cmd)
+	case message.Register:
+		rp, err = s.handleRegister(cmd, c)
 	default:
-		return fmt.Errorf("unrecognized command: %s", cmd.Op)
+		err = fmt.Errorf("unrecognized command: %s", cmd.Op)
 	}
 
-	log.Println("handling command", cmd.Op)
-	return t.SendResponse(rp, err, cmd)
+	log.Println("handling command", cmd.Op, err)
+	return c.t.SendResponse(rp, err, cmd)
 }
 
-func (s *Server) handleListNodes(cmd *message.Command, t *transport.Transport) (*message.ResponsePayload, error) {
+func (s *Server) handleRegister(cmd *message.Command, c *connInfo) (*message.ResponsePayload, error) {
+	p := cmd.Payload
+
+	if p == nil || p.RegisterPayload == nil {
+		return nil, errors.New("invalid register payload")
+	}
+
+	arrTime := time.Now()
+	if cmd.ArriveTime != nil {
+		arrTime = *cmd.ArriveTime
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.nodeStatus = &message.NodeStatus{
+		UpdateTime: arrTime,
+		Identity:   cmd.Payload.RegisterPayload.Identity,
+	}
+
+	return nil, nil
+}
+
+func (s *Server) handleListNodes(cmd *message.Command) (*message.ResponsePayload, error) {
 	p := cmd.Payload
 
 	refreshIDs := false

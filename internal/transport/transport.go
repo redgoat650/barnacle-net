@@ -76,15 +76,9 @@ func (t *Transport) shutdown() {
 func (t *Transport) GracefullyClose() error {
 	// Mark this transport as in the process of shutting down.
 	t.shutdown()
-	// t.stopMu.Lock()
-	// defer t.stopMu.Unlock()
-	// t.stopping = true
 
-	// Write a close statement to the websocket.
+	log.Println("sending close message to websocket")
 	err := t.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-
-	// // Notify all local callers who are waiting for a response that will never arrive.
-	// t.sendClosingRepliesToAllInflight()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -234,9 +228,16 @@ func (t *Transport) SendCommand(c *message.Command) (<-chan *message.Response, e
 }
 
 func (t *Transport) SendResponse(rp *message.ResponsePayload, gotErr error, cmd *message.Command) error {
+	sendErr := ""
+	if gotErr != nil {
+		sendErr = gotErr.Error()
+	}
+
 	tNow := time.Now()
 	m := &message.Message{
 		Response: &message.Response{
+			Success:    gotErr == nil,
+			Error:      sendErr,
 			Payload:    rp,
 			Command:    cmd,
 			SubmitTime: &tNow,
@@ -244,6 +245,18 @@ func (t *Transport) SendResponse(rp *message.ResponsePayload, gotErr error, cmd 
 	}
 
 	return t.sendMessage(m)
+}
+
+func WaitOnResponse(respCh <-chan *message.Response, timeout time.Duration) (*message.Response, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	select {
+	case resp := <-respCh:
+		return resp, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 func (t *Transport) sendMessage(m *message.Message) error {

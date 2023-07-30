@@ -22,7 +22,7 @@ THE SOFTWARE.
 package cmd
 
 import (
-	"fmt"
+	"log"
 
 	"github.com/redgoat650/barnacle-net/internal/server"
 	"github.com/spf13/cobra"
@@ -35,22 +35,11 @@ var serverStartCmd = &cobra.Command{
 	Short: "Start a barnacle-net server.",
 	Long:  `Start a barnacle-net server.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("running server")
-		server.RunServer(viper.GetViper())
+		log.Println("running server")
+		log.Println("terminating server:", server.RunServer(viper.GetViper()))
 	},
 }
 
 func init() {
 	serverCmd.AddCommand(serverStartCmd)
-	// barnacleCmd.AddCommand(startCmd)
-
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// startCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// startCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }

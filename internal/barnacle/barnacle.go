@@ -9,6 +9,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"runtime"
+	"time"
 
 	"github.com/redgoat650/barnacle-net/internal/config"
 	"github.com/redgoat650/barnacle-net/internal/message"
@@ -17,26 +18,37 @@ import (
 	"github.com/spf13/viper"
 )
 
+const (
+	registerTimeout = 10 * time.Second
+)
+
 type Barnacle struct {
 	imagePYRunner *python.ImagePYRunner
 	t             *transport.Transport
 }
 
-func RunBarnacle(v *viper.Viper) {
+func RunBarnacle(v *viper.Viper) error {
 	server := v.GetString(config.ServerConfigKey)
 	path := v.GetString(config.WSPathConfigKey)
-	fmt.Println("Connecting to:", server, "at", path)
+	log.Println("connecting to:", server, "at", path)
 
 	b, err := NewBarnacle(server, path)
 	if err != nil {
-		log.Println("instantiating barnacle:", err)
-		os.Exit(1)
+		return fmt.Errorf("instantiating barnacle: %s", err)
+	}
+
+	// Register host with the server.
+	if err := b.Register(); err != nil {
+		log.Println("closing connection:", b.t.GracefullyClose())
+		return fmt.Errorf("failed to register with server: %s", err)
 	}
 
 	// Block while handling incoming commands.
 	err = b.handleIncomingCmds()
 
 	log.Println("Node shutting down:", err)
+
+	return nil
 }
 
 func NewBarnacle(server, path string) (*Barnacle, error) {
@@ -53,6 +65,38 @@ func NewBarnacle(server, path string) (*Barnacle, error) {
 	return b, nil
 }
 
+func (b *Barnacle) Register() error {
+	id, err := getIdentity()
+	if err != nil {
+		return err
+	}
+
+	c := &message.Command{
+		Op: message.Register,
+		Payload: &message.CommandPayload{
+			RegisterPayload: &message.RegisterPayload{
+				Identity: *id,
+			},
+		},
+	}
+
+	respCh, err := b.t.SendCommand(c)
+	if err != nil {
+		return err
+	}
+
+	resp, err := transport.WaitOnResponse(respCh, registerTimeout)
+	if err != nil {
+		return err
+	}
+
+	if !resp.Success {
+		return fmt.Errorf("register error returned from server: %s", resp.Error)
+	}
+
+	return nil
+}
+
 func (b *Barnacle) handleIncomingCmds() error {
 	// Handle interrupts.
 	interrupt := make(chan os.Signal, 1)
@@ -65,7 +109,7 @@ func (b *Barnacle) handleIncomingCmds() error {
 				return errors.New("transport layer has closed the websocket")
 			}
 
-			err := b.handleCommand(cmd)
+			err := b.handleIncomingCommand(cmd)
 			if err != nil {
 				fmt.Println("Error handling incoming command", err)
 			}
@@ -82,7 +126,7 @@ func (b *Barnacle) handleInterrupt() {
 	log.Println("Websocket close error:", b.t.GracefullyClose()) // Blocks until incoming cmds channel closes
 }
 
-func (b *Barnacle) handleCommand(cmd *message.Command) error {
+func (b *Barnacle) handleIncomingCommand(cmd *message.Command) error {
 	var (
 		rp  *message.ResponsePayload
 		err error
@@ -92,7 +136,7 @@ func (b *Barnacle) handleCommand(cmd *message.Command) error {
 	case message.Identify:
 		rp, err = b.handleIdentify()
 	default:
-		return fmt.Errorf("unrecognized command: %s", cmd.Op)
+		err = fmt.Errorf("unrecognized command: %s", cmd.Op)
 	}
 
 	if err != nil {
@@ -114,6 +158,17 @@ func (b *Barnacle) handleIdentify() (*message.ResponsePayload, error) {
 }
 
 func makeIDResponsePayload() (*message.IdentifyResponsePayload, error) {
+	id, err := getIdentity()
+	if err != nil {
+		return nil, err
+	}
+
+	return &message.IdentifyResponsePayload{
+		Identity: *id,
+	}, nil
+}
+
+func getIdentity() (*message.Identity, error) {
 	user, err := user.Current()
 	if err != nil {
 		return nil, err
@@ -124,15 +179,20 @@ func makeIDResponsePayload() (*message.IdentifyResponsePayload, error) {
 		return nil, err
 	}
 
-	return &message.IdentifyResponsePayload{
-		Identity: message.Identity{
-			Role:     message.NodeRole,
-			Username: user.Name,
-			Hostname: host,
-			NumCPU:   runtime.NumCPU(),
-			PID:      os.Getpid(),
-		},
+	display := detectDisplay()
+
+	return &message.Identity{
+		Role:     message.NodeRole,
+		Username: user.Name,
+		Hostname: host,
+		NumCPU:   runtime.NumCPU(),
+		PID:      os.Getpid(),
+		Display:  display,
 	}, nil
+}
+
+func detectDisplay() *message.DisplayInfo {
+	return nil
 }
 
 const (
@@ -142,16 +202,4 @@ const (
 
 func getScriptPath() string {
 	return filepath.Join(os.TempDir(), imgPyScriptPath)
-}
-
-func getServerConnInfo() (string, string, error) {
-	arguments := os.Args
-	if len(arguments) != 3 {
-		return "", "", errors.New("must be initialized with two arguments: server and path")
-	}
-
-	server := arguments[1]
-	path := arguments[2]
-
-	return server, path, nil
 }
