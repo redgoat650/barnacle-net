@@ -24,22 +24,40 @@ package cmd
 import (
 	"log"
 
-	"github.com/redgoat650/barnacle-net/internal/server"
+	"github.com/redgoat650/barnacle-net/internal/client"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
-// serverStartCmd represents the start command
-var serverStartCmd = &cobra.Command{
-	Use:   "start",
-	Short: "Start a barnacle-net server.",
-	Long:  `Start a barnacle-net server.`,
+const (
+	refreshFlagKey   = "refresh"
+	refreshFlagAlias = "r"
+)
+
+// barnacleListCmd represents the list command
+var barnacleListCmd = &cobra.Command{
+	Use:     "list",
+	Aliases: []string{"ls"},
+	Short:   "Query a list of barnacles connected to the net.",
+	Long:    `Query a list of barnacles connected to the net.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		log.Println("running server")
-		return server.RunServer(viper.GetViper())
+		log.Println("list called")
+
+		r, err := cmd.Flags().GetBool(refreshFlagKey)
+		if err != nil {
+			return err
+		}
+
+		err = client.ListNodes(r)
+		if err != nil {
+			log.Println("list nodes returned error:", err)
+		}
+
+		return nil
 	},
 }
 
 func init() {
-	serverCmd.AddCommand(serverStartCmd)
+	barnacleCmd.AddCommand(barnacleListCmd)
+
+	barnacleListCmd.Flags().BoolP(refreshFlagKey, refreshFlagAlias, false, "Re-identify all connected nodes. If false, just returns current server state.")
 }

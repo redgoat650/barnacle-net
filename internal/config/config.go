@@ -1,15 +1,21 @@
 package config
 
-import "github.com/spf13/viper"
+import (
+	"time"
+
+	"github.com/spf13/viper"
+)
 
 const (
-	WSPathConfigKey = "wspath"
-	PortConfigKey   = "port"
-	ServerConfigKey = "server"
+	WSPathConfigKey  = "wspath"
+	PortConfigKey    = "port"
+	ServerConfigKey  = "server"
+	ClientTimeoutKey = "clientTimeout"
 )
 
 func init() {
 	viper.SetDefault(PortConfigKey, "8080")
 	viper.SetDefault(ServerConfigKey, "localhost:8080")
 	viper.SetDefault(WSPathConfigKey, "/ws")
+	viper.SetDefault(ClientTimeoutKey, 10*time.Second)
 }

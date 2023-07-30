@@ -176,9 +176,16 @@ func (s *Server) handleListNodes(cmd *message.Command) (*message.ResponsePayload
 
 	if refreshIDs {
 		for remoteAddr, connInfo := range s.conns {
+			if connInfo == nil || connInfo.nodeStatus == nil || connInfo.nodeStatus.Identity.Role != message.NodeRole {
+				log.Println("skipping refresh for node", remoteAddr)
+				continue
+			}
+
+			log.Println("sending id refresh for node", remoteAddr)
+
 			err := s.updateConnIdentity(connInfo)
 			if err != nil {
-				log.Println("Identify failed for", remoteAddr, "error:", err)
+				log.Println("identify failed for", remoteAddr, "error:", err)
 				continue
 			}
 		}

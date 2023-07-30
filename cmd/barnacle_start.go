@@ -34,9 +34,9 @@ var barnacleStartCmd = &cobra.Command{
 	Use:   "start",
 	Short: "Start a barnacle node",
 	Long:  `Start a barnacle node.`,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		log.Println("start called")
-		log.Println("terminating:", barnacle.RunBarnacle(viper.GetViper()))
+		return barnacle.RunBarnacle(viper.GetViper())
 	},
 }
 

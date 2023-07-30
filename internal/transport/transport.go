@@ -14,6 +14,10 @@ import (
 	"github.com/redgoat650/barnacle-net/internal/message"
 )
 
+const (
+	defaultWaitTimeout = 60 * time.Second
+)
+
 type Transport struct {
 	incomingCmds chan *message.Command
 	inflight     *inflight.Inflight
@@ -248,6 +252,10 @@ func (t *Transport) SendResponse(rp *message.ResponsePayload, gotErr error, cmd 
 }
 
 func WaitOnResponse(respCh <-chan *message.Response, timeout time.Duration) (*message.Response, error) {
+	if timeout == 0 {
+		timeout = defaultWaitTimeout
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
