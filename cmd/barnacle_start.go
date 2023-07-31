@@ -25,8 +25,14 @@ import (
 	"log"
 
 	"github.com/redgoat650/barnacle-net/internal/barnacle"
+	"github.com/redgoat650/barnacle-net/internal/config"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+)
+
+const (
+	// serverKey   = "server"
+	serverAlias = "s"
 )
 
 // barnacleStartCmd represents the start command
@@ -42,4 +48,7 @@ var barnacleStartCmd = &cobra.Command{
 
 func init() {
 	barnacleCmd.AddCommand(barnacleStartCmd)
+
+	barnacleStartCmd.Flags().StringP(config.ServerConfigKey, serverAlias, "", "Server address to connect to.")
+	viper.BindPFlag(config.ServerConfigKey, barnacleStartCmd.Flags().Lookup(config.ServerConfigKey))
 }
