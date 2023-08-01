@@ -23,7 +23,7 @@ const (
 )
 
 type Barnacle struct {
-	imagePYRunner *python.ImagePYRunner
+	imagePYRunner *python.PyRunner
 	t             *transport.Transport
 }
 
@@ -58,7 +58,7 @@ func NewBarnacle(server, path string) (*Barnacle, error) {
 	}
 
 	b := &Barnacle{
-		imagePYRunner: python.NewImagePYRunner(getScriptPath()),
+		imagePYRunner: python.NewImagePYRunner(getScriptDir()),
 		t:             t,
 	}
 
@@ -197,9 +197,10 @@ func detectDisplay() *message.DisplayInfo {
 
 const (
 	imgFileCachePath = "images"
+	scriptsDir       = "scripts"
 	imgPyScriptPath  = "scripts/image.py"
 )
 
-func getScriptPath() string {
-	return filepath.Join(os.TempDir(), imgPyScriptPath)
+func getScriptDir() string {
+	return filepath.Join(os.TempDir(), scriptsDir)
 }

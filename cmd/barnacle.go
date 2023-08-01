@@ -30,7 +30,6 @@ import (
 )
 
 const (
-	// serverKey   = "server"
 	serverAlias = "s"
 )
 

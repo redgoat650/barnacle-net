@@ -18,6 +18,7 @@ fi
 docker run -d \
   --name ${CONTAINER_NAME} \
   --rm \
+  -v /sys:/sys \
   redgoat650/barnacle-net:${TAG} \
   barnacle start --server=${SERVER}
 
