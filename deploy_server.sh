@@ -11,10 +11,12 @@ docker run -d \
   redgoat650/barnacle-net:${TAG} \
   server start
 
-# docker run -d \
-#   --name server-watchtower \
-#   --rm \
-#   -v /var/run/docker.sock:/var/run/docker.sock \
-#   containrrr/watchtower \
-#   --interval=${INTERVAL} \
-#   ${CONTAINER_NAME}
+runningContainers=$(docker container ls --format json | jq -r '. | select(.Image|startswith("redgoat650/barnacle-net")) | .Names' | xargs)
+
+docker run -d \
+  --name watchtower \
+  --rm \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  containrrr/watchtower \
+  --interval ${INTERVAL} \
+  ${runningContainers}

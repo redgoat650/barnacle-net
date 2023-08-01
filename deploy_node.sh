@@ -1,7 +1,7 @@
 #!/bin/bash
 
-SERVER=${1:-"docker"}
-CONTAINER_NAME=${2:-"barnacle-1"}
+CONTAINER_NAME=${1:-"barnacle-1"}
+SERVER=${2:-"docker"}
 TAG=${3:-"scratch"}
 INTERVAL=${4:-"30"}
 
@@ -21,10 +21,12 @@ docker run -d \
   redgoat650/barnacle-net:${TAG} \
   barnacle start --server=${SERVER}
 
-# docker run -d \
-#   --name ${CONTAINER_NAME}-watchtower \
-#   --rm \
-#   -v /var/run/docker.sock:/var/run/docker.sock \
-#   containrrr/watchtower \
-#   --interval=${INTERVAL} \
-#   ${CONTAINER_NAME}
+runningContainers=$(docker container ls --format json | jq -r '. | select(.Image|startswith("redgoat650/barnacle-net")) | .Names' | xargs)
+
+docker run -d \
+  --name barnacle-watchtower \
+  --rm \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  containrrr/watchtower \
+  --interval=${INTERVAL} \
+  ${runningContainers}
