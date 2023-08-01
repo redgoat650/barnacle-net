@@ -24,7 +24,14 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/redgoat650/barnacle-net/internal/config"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+)
+
+const (
+	// serverKey   = "server"
+	serverAlias = "s"
 )
 
 // barnacleCmd represents the barnacle command
@@ -40,13 +47,6 @@ var barnacleCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(barnacleCmd)
 
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// barnacleCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// barnacleCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+	barnacleCmd.PersistentFlags().StringP(config.ServerConfigKey, serverAlias, "", "Server address to connect to.")
+	viper.BindPFlag(config.ServerConfigKey, barnacleCmd.PersistentFlags().Lookup(config.ServerConfigKey))
 }
