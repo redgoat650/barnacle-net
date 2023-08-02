@@ -65,7 +65,7 @@ func (p *PyRunner) RunIdentifyPY() ([]byte, error) {
 	b, err := cmd.CombinedOutput()
 	if err != nil {
 		log.Println("identify.py execution ended with error", err)
-		return nil, err
+		return b, err
 	}
 
 	log.Println("identify.py execution complete")

@@ -14,7 +14,7 @@ docker run -d \
 runningContainers=$(docker container ls --format json | jq -r '. | select(.Image|startswith("redgoat650/barnacle-net")) | .Names' | xargs)
 
 docker run -d \
-  --name watchtower \
+  --name barnacle-watchtower \
   --rm \
   -v /var/run/docker.sock:/var/run/docker.sock \
   containrrr/watchtower \
