@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -25,6 +27,7 @@ type Server struct {
 	connMu *sync.RWMutex
 	ctx    context.Context
 	cancel context.CancelFunc
+	imgDir string
 }
 
 type connInfo struct {
@@ -53,6 +56,7 @@ func NewServer() *Server {
 		connMu: new(sync.RWMutex),
 		ctx:    ctx,
 		cancel: cancel,
+		imgDir: os.TempDir(),
 	}
 }
 
@@ -128,16 +132,100 @@ func (s *Server) handleIncomingCommand(cmd *message.Command, c *connInfo) error 
 	)
 
 	switch cmd.Op {
-	case message.ListNodes:
+	case message.ListNodesCmd:
 		rp, err = s.handleListNodes(cmd)
-	case message.Register:
+	case message.RegisterCmd:
 		rp, err = s.handleRegister(cmd, c)
+	case message.ShowImagesCmd:
+		err = s.handleShowImages(cmd, c)
 	default:
 		err = fmt.Errorf("unrecognized command: %s", cmd.Op)
 	}
 
 	log.Println("handling command", cmd.Op, err)
 	return c.t.SendResponse(rp, err, cmd)
+}
+
+func (s *Server) handleShowImages(cmd *message.Command, c *connInfo) error {
+	p := cmd.Payload
+
+	if p == nil || p.ShowImagesPayload == nil {
+		return errors.New("invalid register payload")
+	}
+
+	showImgPayload := p.ShowImagesPayload
+
+	if len(showImgPayload.Images) == 0 {
+		return errors.New("no images received")
+	}
+
+	for _, imgData := range showImgPayload.Images {
+		err := s.saveImage(imgData)
+		if err != nil {
+			return fmt.Errorf("error saving image %s: %s", imgData.Name, err)
+		}
+	}
+
+	lastImgIdx := len(showImgPayload.Images) - 1
+
+	s.connMu.RLock()
+	defer s.connMu.RUnlock()
+
+	node := showImgPayload.Node
+	if node != "" {
+		conn, ok := s.conns[node]
+		if !ok {
+			return fmt.Errorf("specified node %s is not connected to the net", node)
+		}
+
+		conn.mu.Lock()
+		defer conn.mu.Unlock()
+
+		if conn.nodeStatus == nil || conn.nodeStatus.Identity.Display == nil || !conn.nodeStatus.Identity.Display.DisplayResponding {
+			return fmt.Errorf("specified node %s is not initialized properply to display an image", node)
+		}
+
+		return s.displayOverConn(showImgPayload.Images[lastImgIdx], conn)
+	}
+
+	// No node specified - pick one at random for each image??
+	if len(s.conns) == 0 {
+		return fmt.Errorf("image(s) saved but no nodes are eligible to display")
+	}
+
+	imgIdx := lastImgIdx
+	for _, conn := range s.conns {
+		conn.mu.Lock()
+		defer conn.mu.Unlock()
+
+		if conn.nodeStatus == nil || conn.nodeStatus.Identity.Display == nil || !conn.nodeStatus.Identity.Display.DisplayResponding {
+			log.Printf("Node %s is not initialized properply to display an image", node)
+			continue
+		}
+
+		s.displayOverConn(showImgPayload.Images[imgIdx], conn)
+		if imgIdx == 0 {
+			return nil
+		}
+		imgIdx--
+	}
+
+	return nil
+}
+
+func (s *Server) displayOverConn(imgData message.ImageData, conn *connInfo) error {
+	// TODO
+	return nil
+}
+
+func (s *Server) saveImage(imgData message.ImageData) error {
+	fullPath := s.imgFilePath(imgData.Name)
+
+	return os.WriteFile(fullPath, imgData.Data, 0644)
+}
+
+func (s *Server) imgFilePath(name string) string {
+	return filepath.Join(s.imgDir, name)
 }
 
 func (s *Server) handleRegister(cmd *message.Command, c *connInfo) (*message.ResponsePayload, error) {
@@ -234,7 +322,7 @@ func (s *Server) updateConnIdentity(connInfo *connInfo) error {
 
 func (s *Server) identifyOverConn(connInfo *connInfo) (*message.NodeStatus, error) {
 	c := &message.Command{
-		Op: message.Identify,
+		Op: message.IdentifyCmd,
 	}
 
 	resp, err := connInfo.t.SendCommand(c)
@@ -259,7 +347,7 @@ func (s *Server) handleIdentifyResponse(resp *message.Response, connInfo *connIn
 		return nil, fmt.Errorf("inflight command response lost")
 	}
 
-	if resp.Command.Op != message.Identify {
+	if resp.Command.Op != message.IdentifyCmd {
 		return nil, fmt.Errorf("response is not for identify command: %s", resp.Command.Op)
 	}
 

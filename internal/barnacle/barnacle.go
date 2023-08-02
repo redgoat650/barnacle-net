@@ -86,7 +86,7 @@ func (b *Barnacle) Register() error {
 	}
 
 	c := &message.Command{
-		Op: message.Register,
+		Op: message.RegisterCmd,
 		Payload: &message.CommandPayload{
 			RegisterPayload: &message.RegisterPayload{
 				Identity: *id,
@@ -152,8 +152,11 @@ func (b *Barnacle) handleIncomingCommand(cmd *message.Command) error {
 	)
 
 	switch cmd.Op {
-	case message.Identify:
+	case message.IdentifyCmd:
 		rp, err = b.handleIdentify()
+	case message.SetImageCmd:
+		rp, err = b.handleSetImage(cmd.Payload)
+
 	default:
 		err = fmt.Errorf("unrecognized command: %s", cmd.Op)
 	}
@@ -163,6 +166,16 @@ func (b *Barnacle) handleIncomingCommand(cmd *message.Command) error {
 	}
 
 	return b.t.SendResponse(rp, err, cmd)
+}
+
+func (b *Barnacle) handleSetImage(p *message.CommandPayload) (*message.ResponsePayload, error) {
+	if p == nil || p.SetImagePayload == nil {
+		return nil, errors.New("invalid command payload")
+	}
+
+	// TODO
+
+	return nil, nil
 }
 
 func (b *Barnacle) handleIdentify() (*message.ResponsePayload, error) {

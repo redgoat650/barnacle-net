@@ -1,8 +1,15 @@
 package client
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"path"
 
 	"github.com/redgoat650/barnacle-net/internal/config"
 	"github.com/redgoat650/barnacle-net/internal/message"
@@ -60,23 +67,106 @@ func ShowImage(node string, imgPaths ...string) error {
 		fmt.Println("closing websocket:", t.GracefullyClose())
 	}()
 
-	c := makeShowImageCmd()
+	c, err := makeShowImageCmd(node, imgPaths...)
+	if err != nil {
+		return err
+	}
+
+	respCh, err := t.SendCommand(c)
+	if err != nil {
+		return err
+	}
+
+	resp, err := transport.WaitOnResponse(respCh, viper.GetDuration(config.ClientTimeoutKey))
+	if err != nil {
+		return err
+	}
+
+	if !resp.Success {
+		return fmt.Errorf("error from request: %s", resp.Error)
+	}
+
+	fmt.Println("success")
+
+	return nil
 }
 
-func makeShowImageCmd(img string) *message.Command {
+func makeShowImageCmd(node string, imgPaths ...string) (*message.Command, error) {
+	irefs, err := makeImageRefs(imgPaths...)
+	if err != nil {
+		return nil, err
+	}
+
 	return &message.Command{
-		Op: message.SetImageCmd,
+		Op: message.ShowImagesCmd,
 		Payload: &message.CommandPayload{
-			SetImagePayload: &message.SetImagePayload{
-				Name: img,
+			ShowImagesPayload: &message.ShowImagesPayload{
+				Images: irefs,
 			},
 		},
+	}, nil
+}
+
+func makeImageRefs(imgPaths ...string) ([]message.ImageData, error) {
+	var ret []message.ImageData
+	for _, imgPath := range imgPaths {
+		if imgData, ok := tryPathAsURL(imgPath); ok {
+			ret = append(ret, *imgData)
+			continue
+		}
+
+		b, err := os.ReadFile(imgPath)
+		if err != nil {
+			return nil, fmt.Errorf("unable to read file %s: %v", imgPath, err)
+		}
+
+		h := sha256.Sum256(b)
+
+		_, fp := path.Split(imgPath)
+
+		ret = append(ret, message.ImageData{
+			Name:   fp,
+			Origin: imgPath,
+			Hash:   h,
+			Data:   b,
+		})
 	}
+
+	return ret, nil
+}
+
+func tryPathAsURL(imgPath string) (*message.ImageData, bool) {
+	resp, err := http.Get(imgPath)
+	if err != nil {
+		return nil, false
+	}
+	defer resp.Body.Close()
+
+	_, fp := path.Split(imgPath)
+
+	buf := &bytes.Buffer{}
+
+	_, err = io.Copy(buf, resp.Body)
+	if err != nil {
+		log.Println("error copying http body to a buffer:", err)
+		return nil, false
+	}
+
+	b := buf.Bytes()
+
+	h := sha256.Sum256(b)
+
+	return &message.ImageData{
+		Name:   fp,
+		Origin: imgPath,
+		Hash:   h,
+		Data:   b,
+	}, true
 }
 
 func makeListNodesCmd(refresh bool) *message.Command {
 	return &message.Command{
-		Op: message.ListNodes,
+		Op: message.ListNodesCmd,
 		Payload: &message.CommandPayload{
 			ListNodesPayload: &message.ListNodesPayload{
 				RefreshIdentities: refresh,

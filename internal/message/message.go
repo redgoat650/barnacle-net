@@ -1,6 +1,8 @@
 package message
 
-import "time"
+import (
+	"time"
+)
 
 type Message struct {
 	Command  *Command  `json:"command,omitempty"`
@@ -20,18 +22,20 @@ type Command struct {
 type Op string
 
 const (
-	SetImageCmd Op = "setImage"
-	GetImageCmd Op = "getImage"
-	Identify    Op = "identify"
-	ListNodes   Op = "listNodes"
-	Register    Op = "register"
+	SetImageCmd   Op = "setImage"
+	GetImageCmd   Op = "getImage"
+	IdentifyCmd   Op = "identify"
+	ListNodesCmd  Op = "listNodes"
+	RegisterCmd   Op = "register"
+	ShowImagesCmd Op = "showImages"
 )
 
 type CommandPayload struct {
-	SetImagePayload  *SetImagePayload  `json:"setImagePayload,omitempty"`
-	GetImagePayload  *GetImagePayload  `json:"getImagePayload,omitempty"`
-	ListNodesPayload *ListNodesPayload `json:"listNodesPayload,omitempty"`
-	RegisterPayload  *RegisterPayload  `json:"registerPayload,omitempty"`
+	SetImagePayload   *SetImagePayload   `json:"setImagePayload,omitempty"`
+	GetImagePayload   *GetImagePayload   `json:"getImagePayload,omitempty"`
+	ListNodesPayload  *ListNodesPayload  `json:"listNodesPayload,omitempty"`
+	RegisterPayload   *RegisterPayload   `json:"registerPayload,omitempty"`
+	ShowImagesPayload *ShowImagesPayload `json:"showImagesPayload,omitempty"`
 }
 
 type SetImagePayload struct {
@@ -49,6 +53,18 @@ type ListNodesPayload struct {
 
 type RegisterPayload struct {
 	Identity Identity `json:"identity,omitempty"`
+}
+
+type ShowImagesPayload struct {
+	Node   string      `json:"node,omitempty"`
+	Images []ImageData `json:"images,omitempty"`
+}
+
+type ImageData struct {
+	Name   string   `json:"name"`
+	Origin string   `json:"origin"`
+	Hash   [32]byte `json:"hash"`
+	Data   []byte   `json:"data,omitempty"`
 }
 
 type Response struct {
