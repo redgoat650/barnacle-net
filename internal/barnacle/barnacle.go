@@ -18,7 +18,8 @@ import (
 )
 
 const (
-	registerTimeout = 10 * time.Second
+	registerTimeout  = 10 * time.Second
+	reconnectBackoff = 10 * time.Second
 )
 
 type Barnacle struct {
@@ -27,6 +28,24 @@ type Barnacle struct {
 }
 
 func RunBarnacle(v *viper.Viper) error {
+	var reconnectRetries int
+	for {
+		err := runBarnacle(v)
+		if err != nil {
+			if errors.Is(err, ErrInterrupt) {
+				log.Println("node shutting down:", err)
+				return err
+			}
+			log.Println("error running barnacle:", err)
+		}
+
+		reconnectRetries++
+		log.Printf("attempting reconnect %d in %v", reconnectRetries, reconnectBackoff)
+		time.Sleep(reconnectBackoff)
+	}
+}
+
+func runBarnacle(v *viper.Viper) error {
 	server := v.GetString(config.ServerConfigKey)
 	path := v.GetString(config.WSPathConfigKey)
 	log.Println("connecting to:", server, "at", path)
@@ -43,11 +62,7 @@ func RunBarnacle(v *viper.Viper) error {
 	}
 
 	// Block while handling incoming commands.
-	err = b.handleIncomingCmds()
-
-	log.Println("Node shutting down:", err)
-
-	return nil
+	return b.handleIncomingCmds()
 }
 
 func NewBarnacle(server, path string) (*Barnacle, error) {
@@ -96,6 +111,11 @@ func (b *Barnacle) Register() error {
 	return nil
 }
 
+var (
+	ErrInterrupt       = errors.New("received interrupt")
+	ErrTransportClosed = errors.New("transport layer has closed the websocket")
+)
+
 func (b *Barnacle) handleIncomingCmds() error {
 	// Handle interrupts.
 	interrupt := make(chan os.Signal, 1)
@@ -105,7 +125,7 @@ func (b *Barnacle) handleIncomingCmds() error {
 		select {
 		case cmd := <-b.t.IncomingCmds():
 			if cmd == nil {
-				return errors.New("transport layer has closed the websocket")
+				return ErrTransportClosed
 			}
 
 			err := b.handleIncomingCommand(cmd)
@@ -115,7 +135,7 @@ func (b *Barnacle) handleIncomingCmds() error {
 
 		case <-interrupt:
 			b.handleInterrupt()
-			return nil
+			return ErrInterrupt
 		}
 	}
 }
@@ -199,13 +219,10 @@ func (b *Barnacle) getIdentity() (*message.Identity, error) {
 
 func (b *Barnacle) detectDisplay() (*message.DisplayInfo, error) {
 	out, err := b.imagePYRunner.RunIdentifyPY()
-	if err != nil {
-		return nil, err
-	}
 
 	return &message.DisplayInfo{
 		Raw: out,
-	}, nil
+	}, err
 }
 
 const (
