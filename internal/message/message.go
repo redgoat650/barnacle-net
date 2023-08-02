@@ -92,12 +92,13 @@ type NodeStatus struct {
 }
 
 type Identity struct {
-	Role     Role         `json:"role"`
-	Username string       `json:"username"`
-	Hostname string       `json:"hostname"`
-	NumCPU   int          `json:"numCPU"`
-	PID      int          `json:"pid"`
-	Display  *DisplayInfo `json:"display,omitempty"`
+	Role           Role         `json:"role"`
+	Username       string       `json:"username"`
+	Hostname       string       `json:"hostname"`
+	NumCPU         int          `json:"numCPU"`
+	PID            int          `json:"pid"`
+	Display        *DisplayInfo `json:"display,omitempty"`
+	DisplayIDError string       `json:"displayIDError,omitempty"`
 }
 
 type DisplayInfo struct {
@@ -106,4 +107,5 @@ type DisplayInfo struct {
 	X                 int           `json:"xResolution"`
 	Y                 int           `json:"yResolution"`
 	RefreshEstimate   time.Duration `json:"refreshEstimate"`
+	Raw               []byte        `json:"raw,omitempty"`
 }

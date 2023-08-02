@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/signal"
 	"os/user"
-	"path/filepath"
 	"runtime"
 	"time"
 
@@ -66,7 +65,7 @@ func NewBarnacle(server, path string) (*Barnacle, error) {
 }
 
 func (b *Barnacle) Register() error {
-	id, err := getIdentity()
+	id, err := b.getIdentity()
 	if err != nil {
 		return err
 	}
@@ -147,7 +146,7 @@ func (b *Barnacle) handleIncomingCommand(cmd *message.Command) error {
 }
 
 func (b *Barnacle) handleIdentify() (*message.ResponsePayload, error) {
-	rp, err := makeIDResponsePayload()
+	rp, err := b.makeIDResponsePayload()
 	if err != nil {
 		return nil, err
 	}
@@ -157,8 +156,8 @@ func (b *Barnacle) handleIdentify() (*message.ResponsePayload, error) {
 	}, nil
 }
 
-func makeIDResponsePayload() (*message.IdentifyResponsePayload, error) {
-	id, err := getIdentity()
+func (b *Barnacle) makeIDResponsePayload() (*message.IdentifyResponsePayload, error) {
+	id, err := b.getIdentity()
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +167,7 @@ func makeIDResponsePayload() (*message.IdentifyResponsePayload, error) {
 	}, nil
 }
 
-func getIdentity() (*message.Identity, error) {
+func (b *Barnacle) getIdentity() (*message.Identity, error) {
 	user, err := user.Current()
 	if err != nil {
 		return nil, err
@@ -179,28 +178,41 @@ func getIdentity() (*message.Identity, error) {
 		return nil, err
 	}
 
-	display := detectDisplay()
+	display, err := b.detectDisplay()
+	var errMsg string
+	if err != nil {
+		log.Println("error detecting display:", err)
+		errMsg = err.Error()
+		// Continue to identify anyway, display will be nil.
+	}
 
 	return &message.Identity{
-		Role:     message.NodeRole,
-		Username: user.Name,
-		Hostname: host,
-		NumCPU:   runtime.NumCPU(),
-		PID:      os.Getpid(),
-		Display:  display,
+		Role:           message.NodeRole,
+		Username:       user.Name,
+		Hostname:       host,
+		NumCPU:         runtime.NumCPU(),
+		PID:            os.Getpid(),
+		Display:        display,
+		DisplayIDError: errMsg,
 	}, nil
 }
 
-func detectDisplay() *message.DisplayInfo {
-	return nil
+func (b *Barnacle) detectDisplay() (*message.DisplayInfo, error) {
+	out, err := b.imagePYRunner.RunIdentifyPY()
+	if err != nil {
+		return nil, err
+	}
+
+	return &message.DisplayInfo{
+		Raw: out,
+	}, nil
 }
 
 const (
 	imgFileCachePath = "images"
-	scriptsDir       = "scripts"
-	imgPyScriptPath  = "scripts/image.py"
+	scriptsDir       = "/scripts"
 )
 
 func getScriptDir() string {
-	return filepath.Join(os.TempDir(), scriptsDir)
+	return scriptsDir
 }
