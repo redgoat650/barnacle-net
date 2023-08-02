@@ -50,6 +50,30 @@ func ListNodes(refresh bool) error {
 	return nil
 }
 
+func ShowImage(node string, imgPaths ...string) error {
+	t, err := connect()
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		fmt.Println("closing websocket:", t.GracefullyClose())
+	}()
+
+	c := makeShowImageCmd()
+}
+
+func makeShowImageCmd(img string) *message.Command {
+	return &message.Command{
+		Op: message.SetImageCmd,
+		Payload: &message.CommandPayload{
+			SetImagePayload: &message.SetImagePayload{
+				Name: img,
+			},
+		},
+	}
+}
+
 func makeListNodesCmd(refresh bool) *message.Command {
 	return &message.Command{
 		Op: message.ListNodes,
