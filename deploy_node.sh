@@ -5,6 +5,8 @@ SERVER=${2:-"docker"}
 TAG=${3:-"scratch"}
 INTERVAL=${4:-"30"}
 
+docker stop barnacle-watchtower
+
 if [ "${SERVER}" = "docker" ]; then
     serverDID=$(docker container ls | grep "barnacle-server" | awk '{ print $1 }')
     echo "Server docker ID: ${serverDID}"
@@ -23,6 +25,7 @@ docker run -d \
   barnacle start --server=${SERVER}
 
 runningContainers=$(docker container ls --format json | jq -r '. | select(.Image|startswith("redgoat650/barnacle-net")) | .Names' | xargs)
+
 
 docker run -d \
   --name barnacle-watchtower \
