@@ -202,6 +202,20 @@ func (t *Transport) handleResponse(r *message.Response) {
 	close(ch)
 }
 
+func (t *Transport) SendCommandWaitResponse(ctx context.Context, c *message.Command) (*message.Response, error) {
+	respCh, err := t.SendCommand(c)
+	if err != nil {
+		return nil, err
+	}
+
+	select {
+	case resp := <-respCh:
+		return resp, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
 func (t *Transport) SendCommand(c *message.Command) (<-chan *message.Response, error) {
 	// Keep the lock held until the message is sent; can't gracefully stop
 	// until this process completes.

@@ -1,12 +1,14 @@
 package barnacle
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"os/user"
+	"path/filepath"
 	"runtime"
 	"time"
 
@@ -20,9 +22,11 @@ import (
 const (
 	registerTimeout  = 10 * time.Second
 	reconnectBackoff = 10 * time.Second
+	imgCacheDir      = "barnacle-images"
 )
 
 type Barnacle struct {
+	imageDir      string
 	imagePYRunner *python.PyRunner
 	t             *transport.Transport
 }
@@ -71,7 +75,15 @@ func NewBarnacle(server, path string) (*Barnacle, error) {
 		return nil, err
 	}
 
+	imageDir := filepath.Join(os.TempDir(), imgCacheDir)
+
+	err = os.MkdirAll(imageDir, 0644)
+	if err != nil {
+		panic(err)
+	}
+
 	b := &Barnacle{
+		imageDir:      imageDir,
 		imagePYRunner: python.NewImagePYRunner(getScriptDir()),
 		t:             t,
 	}
@@ -173,9 +185,63 @@ func (b *Barnacle) handleSetImage(p *message.CommandPayload) (*message.ResponseP
 		return nil, errors.New("invalid command payload")
 	}
 
-	// TODO
+	imgData := p.SetImagePayload
+	fileName := imgData.Name
+	filePath := b.getFilePath(fileName)
+
+	_, err := os.Stat(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// Download the file
+			fmt.Printf("download file %s to %s", fileName, filePath)
+			if err := b.downloadFile(fileName); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	err = b.imagePYRunner.RunImagePY(filePath, imgData.Saturation)
+	if err != nil {
+		return nil, fmt.Errorf("running image setting script: %s", err)
+	}
 
 	return nil, nil
+}
+
+func (b *Barnacle) downloadFile(fileName string) error {
+	c := &message.Command{
+		Op: message.GetImageCmd,
+		Payload: &message.CommandPayload{
+			GetImagePayload: &message.GetImagePayload{
+				Name: fileName,
+			},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	resp, err := b.t.SendCommandWaitResponse(ctx, c)
+	if err != nil {
+		return fmt.Errorf("barnacle error downloading file from server: %s", err)
+	}
+
+	if resp == nil || resp.Payload == nil || resp.Payload.GetImageResponse == nil || len(resp.Payload.GetImageResponse.ImageData) == 0 {
+		return errors.New("unexpected payload returned for download image request")
+	}
+
+	filePath := b.getFilePath(fileName)
+
+	err = os.WriteFile(filePath, resp.Payload.GetImageResponse.ImageData, 0644)
+	if err != nil {
+		return fmt.Errorf("unable to write image data to file %s: %s", filePath, err)
+	}
+
+	return nil
+}
+
+func (b *Barnacle) getFilePath(fileName string) string {
+	return filepath.Join(b.imageDir, fileName)
 }
 
 func (b *Barnacle) handleIdentify() (*message.ResponsePayload, error) {

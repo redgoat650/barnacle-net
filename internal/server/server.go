@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"log"
@@ -20,6 +21,7 @@ import (
 
 const (
 	defaultTimeout = 10 * time.Second
+	imgCacheDir    = "barnacle-images"
 )
 
 type Server struct {
@@ -51,12 +53,19 @@ func RunServer(v *viper.Viper) error {
 func NewServer() *Server {
 	ctx, cancel := context.WithCancel(context.Background())
 
+	imageDir := filepath.Join(os.TempDir(), imgCacheDir)
+
+	err := os.MkdirAll(imageDir, 0644)
+	if err != nil {
+		panic(err)
+	}
+
 	return &Server{
 		conns:  make(map[string]*connInfo),
 		connMu: new(sync.RWMutex),
 		ctx:    ctx,
 		cancel: cancel,
-		imgDir: os.TempDir(),
+		imgDir: imageDir,
 	}
 }
 
@@ -138,6 +147,8 @@ func (s *Server) handleIncomingCommand(cmd *message.Command, c *connInfo) error 
 		rp, err = s.handleRegister(cmd, c)
 	case message.ShowImagesCmd:
 		err = s.handleShowImages(cmd, c)
+	case message.GetImageCmd:
+		rp, err = s.handleGetImage(cmd)
 	default:
 		err = fmt.Errorf("unrecognized command: %s", cmd.Op)
 	}
@@ -146,11 +157,38 @@ func (s *Server) handleIncomingCommand(cmd *message.Command, c *connInfo) error 
 	return c.t.SendResponse(rp, err, cmd)
 }
 
+func (s *Server) handleGetImage(cmd *message.Command) (*message.ResponsePayload, error) {
+	p := cmd.Payload
+
+	if p == nil || p.GetImagePayload == nil {
+		return nil, errors.New("invalid get image payload")
+	}
+
+	fileName := p.GetImagePayload.Name
+
+	filePath := s.imgFilePath(fileName)
+
+	b, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	h := sha256.Sum256(b)
+
+	return &message.ResponsePayload{
+		GetImageResponse: &message.GetImageResponsePayload{
+			Name:      fileName,
+			ImageData: b,
+			Hash:      h,
+		},
+	}, nil
+}
+
 func (s *Server) handleShowImages(cmd *message.Command, c *connInfo) error {
 	p := cmd.Payload
 
 	if p == nil || p.ShowImagesPayload == nil {
-		return errors.New("invalid register payload")
+		return errors.New("invalid show images payload")
 	}
 
 	showImgPayload := p.ShowImagesPayload
@@ -182,7 +220,7 @@ func (s *Server) handleShowImages(cmd *message.Command, c *connInfo) error {
 		defer conn.mu.Unlock()
 
 		if conn.nodeStatus == nil || conn.nodeStatus.Identity.Display == nil || !conn.nodeStatus.Identity.Display.DisplayResponding {
-			return fmt.Errorf("specified node %s is not initialized properply to display an image", node)
+			return fmt.Errorf("specified node %s is not initialized properly to display an image", node)
 		}
 
 		return s.displayOverConn(showImgPayload.Images[lastImgIdx], conn)
@@ -194,16 +232,24 @@ func (s *Server) handleShowImages(cmd *message.Command, c *connInfo) error {
 	}
 
 	imgIdx := lastImgIdx
-	for _, conn := range s.conns {
+	for addr, conn := range s.conns {
 		conn.mu.Lock()
 		defer conn.mu.Unlock()
 
-		if conn.nodeStatus == nil || conn.nodeStatus.Identity.Display == nil || !conn.nodeStatus.Identity.Display.DisplayResponding {
-			log.Printf("Node %s is not initialized properply to display an image", node)
-			continue
+		log.Printf("sending image file to node %s", addr)
+
+		// if conn.nodeStatus == nil || conn.nodeStatus.Identity.Display == nil || !conn.nodeStatus.Identity.Display.DisplayResponding {
+		// 	log.Printf("Node %s is not initialized properly to display an image", addr)
+		// 	continue
+		// }
+
+		err := s.displayOverConn(showImgPayload.Images[imgIdx], conn)
+		if err != nil {
+			return fmt.Errorf("error displaying over connection: %s", err)
 		}
 
-		s.displayOverConn(showImgPayload.Images[imgIdx], conn)
+		// All active displays have been issued an image to display from this command. No point
+		// overwriting the images being displayed on any display.
 		if imgIdx == 0 {
 			return nil
 		}
@@ -214,7 +260,34 @@ func (s *Server) handleShowImages(cmd *message.Command, c *connInfo) error {
 }
 
 func (s *Server) displayOverConn(imgData message.ImageData, conn *connInfo) error {
-	// TODO
+	// connInfo should be already locked
+	t := conn.t
+
+	sat := float64(0.5)
+
+	c := &message.Command{
+		Op: message.SetImageCmd,
+		Payload: &message.CommandPayload{
+			SetImagePayload: &message.SetImagePayload{
+				Name:       imgData.Name,
+				Hash:       imgData.Hash,
+				Saturation: &sat,
+			},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	resp, err := t.SendCommandWaitResponse(ctx, c)
+	if err != nil {
+		return err
+	}
+
+	if !resp.Success {
+		return fmt.Errorf("failed to display image: %s", resp.Error)
+	}
+
 	return nil
 }
 

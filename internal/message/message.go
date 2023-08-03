@@ -40,6 +40,7 @@ type CommandPayload struct {
 
 type SetImagePayload struct {
 	Name       string   `json:"name"`
+	Hash       [32]byte `json:"hash"`
 	Saturation *float64 `json:"saturation,omitempty"`
 }
 
@@ -83,8 +84,9 @@ type ResponsePayload struct {
 }
 
 type GetImageResponsePayload struct {
-	Name      string `json:"name"`
-	ImageData []byte `json:"imgData,omitempty"`
+	Name      string   `json:"name"`
+	ImageData []byte   `json:"imgData,omitempty"`
+	Hash      [32]byte `json:"hash"`
 }
 
 type IdentifyResponsePayload struct {
