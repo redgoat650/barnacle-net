@@ -1,6 +1,7 @@
 package message
 
 import (
+	"os"
 	"time"
 )
 
@@ -28,6 +29,7 @@ const (
 	ListNodesCmd  Op = "listNodes"
 	RegisterCmd   Op = "register"
 	ShowImagesCmd Op = "showImages"
+	ListFilesCmd  Op = "listFiles"
 )
 
 type CommandPayload struct {
@@ -81,6 +83,7 @@ type ResponsePayload struct {
 	GetImageResponse  *GetImageResponsePayload  `json:"getImageResponse,omitempty"`
 	IdentifyResponse  *IdentifyResponsePayload  `json:"identifyResponse,omitempty"`
 	ListNodesResponse *ListNodesResponsePayload `json:"listNodesResponse,omitempty"`
+	ListFilesResponse *ListFilesResponsePayload `json:"listFilesResponse,omitempty"`
 }
 
 type GetImageResponsePayload struct {
@@ -95,6 +98,18 @@ type IdentifyResponsePayload struct {
 
 type ListNodesResponsePayload struct {
 	Nodes map[string]NodeStatus `json:"nodes,omitempty"`
+}
+
+type ListFilesResponsePayload struct {
+	FileMap map[string][]FileInfo `json:"files,omitempty"`
+}
+
+type FileInfo struct {
+	Name    string      `json:"name"`
+	Size    int64       `json:"size"`
+	Mode    os.FileMode `json:"mode"`
+	ModTime time.Time   `json:"modTime"`
+	Hash    [32]byte    `json:"hash"`
 }
 
 type Role string

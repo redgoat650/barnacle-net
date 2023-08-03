@@ -2,8 +2,10 @@ package barnacle
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"os"
 	"os/signal"
@@ -168,7 +170,8 @@ func (b *Barnacle) handleIncomingCommand(cmd *message.Command) error {
 		rp, err = b.handleIdentify()
 	case message.SetImageCmd:
 		rp, err = b.handleSetImage(cmd.Payload)
-
+	case message.ListFilesCmd:
+		rp, err = b.handleListFiles()
 	default:
 		err = fmt.Errorf("unrecognized command: %s", cmd.Op)
 	}
@@ -178,6 +181,45 @@ func (b *Barnacle) handleIncomingCommand(cmd *message.Command) error {
 	}
 
 	return b.t.SendResponse(rp, err, cmd)
+}
+
+func (b *Barnacle) handleListFiles() (*message.ResponsePayload, error) {
+	var ret []message.FileInfo
+
+	err := filepath.Walk(b.imageDir, func(path string, info fs.FileInfo, err error) error {
+		if err != nil {
+			return fmt.Errorf("walk error: %s", err)
+		}
+
+		if info.IsDir() {
+			return nil
+		}
+
+		name := info.Name()
+
+		b, err := os.ReadFile(name)
+		if err != nil {
+			return fmt.Errorf("unable to read file %s: %s", name, err)
+		}
+
+		ret = append(ret, message.FileInfo{
+			Name:    name,
+			Size:    info.Size(),
+			Mode:    info.Mode(),
+			ModTime: info.ModTime(),
+			Hash:    sha256.Sum256(b),
+		})
+
+		return nil
+	})
+
+	return &message.ResponsePayload{
+		ListFilesResponse: &message.ListFilesResponsePayload{
+			FileMap: map[string][]message.FileInfo{
+				"self": ret,
+			},
+		},
+	}, err
 }
 
 func (b *Barnacle) handleSetImage(p *message.CommandPayload) (*message.ResponsePayload, error) {

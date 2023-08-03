@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -149,12 +150,101 @@ func (s *Server) handleIncomingCommand(cmd *message.Command, c *connInfo) error 
 		err = s.handleShowImages(cmd, c)
 	case message.GetImageCmd:
 		rp, err = s.handleGetImage(cmd)
+	case message.ListFilesCmd:
+		rp, err = s.handleListFiles(cmd)
 	default:
 		err = fmt.Errorf("unrecognized command: %s", cmd.Op)
 	}
 
 	log.Println("handling command", cmd.Op, err)
 	return c.t.SendResponse(rp, err, cmd)
+}
+
+func (s *Server) handleListFiles(cmd *message.Command) (*message.ResponsePayload, error) {
+	var ret []message.FileInfo
+
+	err := filepath.Walk(s.imgDir, func(path string, info fs.FileInfo, err error) error {
+		fmt.Println("WALKED TO", path)
+		if err != nil {
+			return fmt.Errorf("walk error: %s", err)
+		}
+
+		if info.IsDir() {
+			return nil
+		}
+
+		name := info.Name()
+
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("unable to read file on server %s: %s", name, err)
+		}
+
+		ret = append(ret, message.FileInfo{
+			Name:    name,
+			Size:    info.Size(),
+			Mode:    info.Mode(),
+			ModTime: info.ModTime(),
+			Hash:    sha256.Sum256(b),
+		})
+
+		return nil
+	})
+
+	retMap := map[string][]message.FileInfo{
+		"server": ret,
+	}
+
+	s.connMu.RLock()
+	defer s.connMu.RUnlock()
+
+	// TODO: can be done in parallel
+	for nodeName, conn := range s.conns {
+		conn.mu.Lock()
+		defer conn.mu.Unlock()
+
+		if conn.nodeStatus == nil || conn.nodeStatus.Identity.Role != message.NodeRole {
+			log.Printf("node %s is not connected to the filesystem", nodeName)
+			continue
+		}
+
+		c := &message.Command{
+			Op: message.ListFilesCmd,
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		resp, err := conn.t.SendCommandWaitResponse(ctx, c)
+		if err != nil {
+			return nil, fmt.Errorf("error getting response from %s: %s", nodeName, err)
+		}
+
+		if !resp.Success {
+			return nil, fmt.Errorf("unable to list files on node %s: %s", nodeName, resp.Error)
+		}
+
+		if resp == nil || resp.Payload == nil || resp.Payload.ListFilesResponse == nil {
+			return nil, fmt.Errorf("invalid list files payload returned from %s", nodeName)
+		}
+
+		fm := resp.Payload.ListFilesResponse.FileMap
+		if len(fm) != 1 {
+			return nil, fmt.Errorf("expected 1 map entry in response from node but got %d", len(fm))
+		}
+
+		var nodeFiles []message.FileInfo
+		for _, nodeFiles = range fm {
+		}
+
+		retMap[nodeName] = nodeFiles
+	}
+
+	return &message.ResponsePayload{
+		ListFilesResponse: &message.ListFilesResponsePayload{
+			FileMap: retMap,
+		},
+	}, err
 }
 
 func (s *Server) handleGetImage(cmd *message.Command) (*message.ResponsePayload, error) {
@@ -238,10 +328,10 @@ func (s *Server) handleShowImages(cmd *message.Command, c *connInfo) error {
 
 		log.Printf("sending image file to node %s", addr)
 
-		// if conn.nodeStatus == nil || conn.nodeStatus.Identity.Display == nil || !conn.nodeStatus.Identity.Display.DisplayResponding {
-		// 	log.Printf("Node %s is not initialized properly to display an image", addr)
-		// 	continue
-		// }
+		if conn.nodeStatus == nil || conn.nodeStatus.Identity.Display == nil || !conn.nodeStatus.Identity.Display.DisplayResponding {
+			log.Printf("Node %s is not initialized properly to display an image", addr)
+			continue
+		}
 
 		err := s.displayOverConn(showImgPayload.Images[imgIdx], conn)
 		if err != nil {

@@ -2,6 +2,7 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"time"
 
 	"github.com/redgoat650/barnacle-net/internal/config"
 	"github.com/redgoat650/barnacle-net/internal/message"
@@ -47,13 +49,16 @@ func ListNodes(refresh bool) error {
 		return fmt.Errorf("malformatted response")
 	}
 
-	b, err := json.MarshalIndent(resp.Payload.ListNodesResponse, "", "  ")
+	return displayJSON(resp.Payload.ListNodesResponse)
+}
+
+func displayJSON(p any) error {
+	b, err := json.MarshalIndent(p, "", "  ")
 	if err != nil {
 		return err
 	}
 
 	fmt.Println(string(b))
-
 	return nil
 }
 
@@ -89,6 +94,39 @@ func ShowImage(node string, imgPaths ...string) error {
 	fmt.Println("success")
 
 	return nil
+}
+
+func ListFiles() error {
+	t, err := connect()
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		fmt.Println("closing websocket:", t.GracefullyClose())
+	}()
+
+	c := makeListFilesCmd()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	resp, err := t.SendCommandWaitResponse(ctx, c)
+	if err != nil {
+		return err
+	}
+
+	if !resp.Success {
+		return fmt.Errorf("error from request: %s", resp.Error)
+	}
+
+	return displayJSON(resp.Payload.ListFilesResponse)
+}
+
+func makeListFilesCmd() *message.Command {
+	return &message.Command{
+		Op: message.ListFilesCmd,
+	}
 }
 
 func makeShowImageCmd(node string, imgPaths ...string) (*message.Command, error) {
@@ -178,6 +216,8 @@ func makeListNodesCmd(refresh bool) *message.Command {
 func connect() (*transport.Transport, error) {
 	server := viper.GetString(config.ServerConfigKey)
 	path := viper.GetString(config.WSPathConfigKey)
+
+	server = "172.17.0.4:8080"
 
 	fmt.Println("Connecting to:", server, "at", path)
 
