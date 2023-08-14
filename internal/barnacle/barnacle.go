@@ -12,6 +12,8 @@ import (
 	"os/user"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/redgoat650/barnacle-net/internal/config"
@@ -341,9 +343,56 @@ func (b *Barnacle) getIdentity() (*message.Identity, error) {
 func (b *Barnacle) detectDisplay() (*message.DisplayInfo, error) {
 	out, err := b.imagePYRunner.RunIdentifyPY()
 
+	kv := toKV(out, ":")
+
+	w, h := displayToWH(kv)
+
 	return &message.DisplayInfo{
-		Raw: out,
+		DisplayResponding: err == nil,
+		Width:             w,
+		Height:            h,
+		RefreshEstimate:   60 * time.Second,
+		Raw:               out,
 	}, err
+}
+
+func toKV(b []byte, sep string) map[string]string {
+	ret := make(map[string]string)
+	for _, l := range strings.Split(string(b), "\n") {
+		spl := strings.Split(l, ":")
+		if len(spl) != 2 {
+			continue
+		}
+
+		ret[spl[0]] = spl[1]
+	}
+
+	return ret
+}
+
+func displayToWH(kv map[string]string) (int, int) {
+	displayStr, ok := kv["Display"]
+	if !ok {
+		return 0, 0
+	}
+
+	d := strings.Split(displayStr, "x")
+
+	if len(d) != 2 {
+		return 0, 0
+	}
+
+	w, err := strconv.Atoi(d[0])
+	if err != nil {
+		return 0, 0
+	}
+
+	h, err := strconv.Atoi(d[1])
+	if err != nil {
+		return 0, 0
+	}
+
+	return w, h
 }
 
 const (

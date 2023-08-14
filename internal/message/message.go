@@ -137,8 +137,8 @@ type Identity struct {
 type DisplayInfo struct {
 	DisplayResponding bool          `json:"displayResponding"`
 	Colors            int           `json:"colorCount"`
-	X                 int           `json:"xResolution"`
-	Y                 int           `json:"yResolution"`
+	Width             int           `json:"xResolution"`
+	Height            int           `json:"yResolution"`
 	RefreshEstimate   time.Duration `json:"refreshEstimate"`
 	Raw               []byte        `json:"raw,omitempty"`
 }
