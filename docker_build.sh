@@ -1,14 +1,50 @@
 #!/bin/bash
 
 TAG=${1:-"scratch"}
+BUILD_BASE=${2:-""}
 
-# Install the app
-go install
+if [ -n "$BUILD_BASE" ]; then
+    echo "building base"
+
+    pushd ./docker/base
+    docker buildx build \
+        -t redgoat650/barnacle-net:${TAG}-base \
+        --push \
+        .
+        
+    docker buildx build \
+        -t redgoat650/barnacle-net:${TAG}-base \
+        --platform linux/arm/v6 \
+        --push \
+        .
+    popd
+fi
+
+# Build the app
+go build
+mv ./barnacle-net ./docker/barnacle-net
 
 pushd ./docker
-cp /go/bin/barnacle-net ./barnacle-net
-docker build -t redgoat650/barnacle-net:${TAG} .
+
+docker buildx build \
+    -t redgoat650/barnacle-net:${TAG} \
+    --push \
+    .
+
 rm ./barnacle-net
 popd
 
-docker push redgoat650/barnacle-net:${TAG}
+# Build the app armv6
+env GOOS=linux GOARCH=arm GOARM=6 go build 
+mv ./barnacle-net ./docker/barnacle-net
+
+pushd ./docker
+
+docker buildx build \
+    -t redgoat650/barnacle-net:${TAG} \
+    --platform linux/arm/v6 \
+    --push \
+    .
+
+rm ./barnacle-net
+popd

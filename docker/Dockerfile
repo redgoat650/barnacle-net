@@ -1,10 +1,7 @@
-FROM python
+FROM redgoat650/barnacle-net:scratch-base
 
 COPY ./barnacle-net /bin/barnacle-net
 
 COPY ./scripts /scripts
-
-RUN pip3 install inky[rpi,example-depends]
-RUN pip3 install Pillow
 
 ENTRYPOINT 	["/bin/barnacle-net"]

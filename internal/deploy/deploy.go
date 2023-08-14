@@ -11,9 +11,9 @@ import (
 	"github.com/docker/cli/cli/command/formatter"
 )
 
-func DeployNodes(img string, nodes ...string) error {
+func DeployNodes(img, server string, nodes ...string) error {
 	for _, node := range nodes {
-		if err := DeployNode(node, img); err != nil {
+		if err := DeployImageToNode(node, img, server); err != nil {
 			return err
 		}
 	}
@@ -21,8 +21,8 @@ func DeployNodes(img string, nodes ...string) error {
 	return nil
 }
 
-func DeployNode(node, image string) error {
-	fmt.Println("Deploying node", node)
+func DeployImageToNode(node, image, server string) error {
+	log.Printf("Deploying %s to host %s", image, node)
 
 	list, err := dockerContainerList(node)
 	if err != nil {
@@ -31,17 +31,66 @@ func DeployNode(node, image string) error {
 
 	fmt.Println(list)
 
-	err = dockerRun(node, "ubuntu")
+	for _, cntr := range list {
+		fmt.Println("checking image", cntr["Image"])
+		if cntr["Image"] == image {
+			id := cntr["ID"]
+			if id == "" {
+				return fmt.Errorf("no ID for container with image %s", cntr["Image"])
+			}
+
+			err := dockerContainerStop(id, node)
+			if err != nil {
+				return fmt.Errorf("stopping container %s from node %s: %s", id, node, err)
+			}
+
+			err = dockerContainerRemove(id, node)
+			if err != nil {
+				return fmt.Errorf("removing container %s from node %s: %s", id, node, err)
+			}
+
+			// fmt.Println("IMAGE!", cntr["Names"])
+
+			// err := dockerContainerInspect(node, cntr["ID"])
+			// if err != nil {
+			// 	return err
+			// }
+
+			// break
+		}
+	}
+
+	imgs, err := dockerImageList(node)
 	if err != nil {
 		return err
 	}
 
-	list, err = dockerContainerList(node)
+	for _, img := range imgs {
+		fmt.Println(img)
+
+		if fmt.Sprintf("%s:%s", img["Repository"], img["Tag"]) == image {
+			id := img["ID"]
+
+			err := dockerImageRemove(id, node)
+			if err != nil {
+				return fmt.Errorf("removing image %s from node %s: %s", id, node, err)
+			}
+		}
+	}
+
+	barnacleStartCmd := []string{"barnacle", "start", "--server", server}
+
+	err = dockerRun(node, image, barnacleStartCmd...)
 	if err != nil {
 		return err
 	}
 
-	fmt.Println(list)
+	// list, err = dockerContainerList(node)
+	// if err != nil {
+	// 	return err
+	// }
+
+	// fmt.Println(list)
 
 	return nil
 }
@@ -53,10 +102,15 @@ const (
 	// Subcommands
 	containerSubCmd = "container"
 	contextSubCmd   = "context"
+	imageSubCmd     = "image"
+	inspectSubCmd   = "inspect"
 	listSubCmd      = "ls"
 	runSubCmd       = "run"
+	stopSubCmd      = "stop"
+	rmSubCmd        = "remove"
 
 	// Args
+	allArg    = "--all"
 	formatArg = "--format"
 	hostArg   = "--host"
 
@@ -64,14 +118,15 @@ const (
 	jsonFormatArg = "json"
 )
 
-func dockerRun(node, image string) error {
-	// docker run <image>
+func dockerRun(node, image string, cmd ...string) error {
+	// docker run <image> cmd...
 	var args []string
 	if node != "" {
 		args = append(args, hostArgs(node)...)
 	}
 
 	args = append(args, runSubCmd, image)
+	args = append(args, cmd...)
 
 	out, err := runDockerCmd(args...)
 
@@ -80,13 +135,83 @@ func dockerRun(node, image string) error {
 	return err
 }
 
-func dockerContainerList(node string) (ret []formatter.ContainerContext, err error) {
+func dockerContainerStop(id, node string) error {
+	// docker --host=<node> container stop <id>
+	var args []string
+	if node != "" {
+		args = append(args, hostArgs(node)...)
+	}
+
+	args = append(args, containerSubCmd, stopSubCmd, id)
+
+	out, err := runDockerCmd(args...)
+
+	fmt.Println("STDOUT:", out)
+
+	return err
+}
+
+func dockerContainerRemove(id, node string) error {
+	return dockerResourceRemove(id, containerSubCmd, node)
+}
+
+func dockerImageRemove(id, node string) error {
+	return dockerResourceRemove(id, imageSubCmd, node)
+}
+
+func dockerResourceRemove(id, resource, node string) error {
+	// docker --host=<node> <resource> remove <id>
+	var args []string
+	if node != "" {
+		args = append(args, hostArgs(node)...)
+	}
+
+	args = append(args, resource, rmSubCmd, id)
+
+	out, err := runDockerCmd(args...)
+
+	fmt.Println("STDOUT:", out)
+
+	return err
+}
+
+// func dockerContainerInspect(node, id string) error {
+// 	// docker container inspect <id>
+// 	var args []string
+// 	if node != "" {
+// 		args = append(args, hostArgs(node)...)
+// 	}
+
+// 	args = append(args, containerSubCmd, inspectSubCmd)
+// 	args = append(args, formatArgs()...)
+
+// 	out, err := runDockerCmd(args...)
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	fmt.Println("CONTAINER INSPECT:", out)
+
+// 	c := &types.ContainerJSON{}
+
+// 	err = json.Unmarshal([]byte(out), &c)
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	fmt.Println(c)
+
+// 	return nil
+// }
+
+func dockerContainerList(node string) (ret []formatter.SubHeaderContext, err error) {
 	// docker --host <node> container ls --format json
 	var args []string
 	if node != "" {
 		args = append(args, hostArgs(node)...)
 	}
-	args = append(args, containerSubCmd, listSubCmd)
+
+	args = append(args, containerSubCmd, listSubCmd, allArg)
 	args = append(args, formatArgs()...)
 
 	out, err := runDockerCmd(args...)
@@ -99,14 +224,47 @@ func dockerContainerList(node string) (ret []formatter.ContainerContext, err err
 			continue
 		}
 
-		clientCtx := &formatter.ContainerContext{}
+		cntr := &formatter.SubHeaderContext{}
 
-		err = json.Unmarshal([]byte(s), &clientCtx)
+		err = json.Unmarshal([]byte(s), &cntr)
 		if err != nil {
 			return nil, err
 		}
 
-		ret = append(ret, *clientCtx)
+		ret = append(ret, *cntr)
+	}
+
+	return ret, nil
+}
+
+func dockerImageList(node string) (ret []formatter.SubHeaderContext, err error) {
+	// docker --host <node> image ls --format json
+	var args []string
+	if node != "" {
+		args = append(args, hostArgs(node)...)
+	}
+
+	args = append(args, imageSubCmd, listSubCmd)
+	args = append(args, formatArgs()...)
+
+	out, err := runDockerCmd(args...)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, s := range strings.Split(strings.TrimSpace(out), "\n") {
+		if len(s) == 0 {
+			continue
+		}
+
+		imgsum := &formatter.SubHeaderContext{}
+
+		err = json.Unmarshal([]byte(s), &imgsum)
+		if err != nil {
+			return nil, err
+		}
+
+		ret = append(ret, *imgsum)
 	}
 
 	return ret, nil
