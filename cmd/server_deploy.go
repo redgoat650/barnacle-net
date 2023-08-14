@@ -32,34 +32,33 @@ import (
 )
 
 const (
-	deployNodesCfgPath = "deploy.nodes"
-	deployImageCfgPath = "deploy.image"
-	defaultDeployImage = "redgoat650/barnacle-net:scratch"
+	deployServerAddrCfgPath = "deploy.serverAddr"
 )
 
-// barnacleDeployCmd represents the deploy command
-var barnacleDeployCmd = &cobra.Command{
+// serverDeployCmd represents the deploy command
+var serverDeployCmd = &cobra.Command{
 	Use:   "deploy",
-	Short: "Deploy barnacle to all nodes",
-	Long:  `Deploy barnacle to all nodes in the config file.`,
+	Short: "Deploy a server",
+	Long:  `Deploy a new server or redeploy an existing server.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		fmt.Println("deploy called")
-
-		nodes := viper.GetStringSlice(deployNodesCfgPath)
 
 		img := viper.GetString(deployImageCfgPath)
 		if img == "" {
 			return errors.New("must provide image to deploy")
 		}
 
-		servAddr := viper.GetString(deployServerAddrCfgPath)
-		if img == "" {
-			return errors.New("must provide server address to connect the node")
+		servAddr, err := deploy.DeployServer(img)
+		if err != nil {
+			log.Println("deploying server:", err)
 		}
 
-		err := deploy.DeployNodes(img, servAddr, nodes...)
+		log.Printf("Listening on %s", servAddr)
+
+		viper.Set(deployServerAddrCfgPath, servAddr)
+		err = viper.WriteConfig()
 		if err != nil {
-			log.Println("error deploying nodes:", err)
+			log.Println("error writing config:", err)
 		}
 
 		return nil
@@ -67,9 +66,8 @@ var barnacleDeployCmd = &cobra.Command{
 }
 
 func init() {
-	barnacleCmd.AddCommand(barnacleDeployCmd)
+	serverCmd.AddCommand(serverDeployCmd)
 
-	viper.SetDefault(deployImageCfgPath, defaultDeployImage)
 	// Here you will define your flags and configuration settings.
 
 	// Cobra supports Persistent Flags which will work for this command
