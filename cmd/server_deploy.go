@@ -48,18 +48,18 @@ var serverDeployCmd = &cobra.Command{
 			return errors.New("must provide image to deploy")
 		}
 
-		servAddr, err := deploy.DeployServer(img)
+		err := deploy.DeployServer(img)
 		if err != nil {
 			log.Println("deploying server:", err)
 		}
 
-		log.Printf("Listening on %s", servAddr)
+		// log.Printf("Listening on %s", servAddr)
 
-		viper.Set(deployServerAddrCfgPath, servAddr)
-		err = viper.WriteConfig()
-		if err != nil {
-			log.Println("error writing config:", err)
-		}
+		// viper.Set(deployServerAddrCfgPath, servAddr)
+		// err = viper.WriteConfig()
+		// if err != nil {
+		// 	log.Println("error writing config:", err)
+		// }
 
 		return nil
 	},

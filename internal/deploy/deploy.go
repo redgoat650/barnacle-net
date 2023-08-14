@@ -16,10 +16,10 @@ const (
 	serverContainerName = "barnacle-server"
 )
 
-func DeployServer(image string) (string, error) {
+func DeployServer(image string) error {
 	err := cleanupExistingImage(image, "")
 	if err != nil {
-		return "", err
+		return err
 	}
 
 	opts := RunOpts{
@@ -32,22 +32,22 @@ func DeployServer(image string) (string, error) {
 
 	err = dockerRun(image, "", opts, servCmd...)
 	if err != nil {
-		return "", err
+		return err
 	}
 
-	c, err := dockerContainerInspect(serverContainerName, "")
-	if err != nil {
-		return "", err
-	}
+	// c, err := dockerContainerInspect(serverContainerName, "")
+	// if err != nil {
+	// 	return "", err
+	// }
 
-	if len(c) != 1 {
-		return "", fmt.Errorf("unexpected number of containers returned from inspect: %d", len(c))
-	}
+	// if len(c) != 1 {
+	// 	return "", fmt.Errorf("unexpected number of containers returned from inspect: %d", len(c))
+	// }
 
-	ipAddr := c[0].NetworkSettings.IPAddress
+	// ipAddr := c[0].NetworkSettings.IPAddress
 
 	// TODO: Port must be controllable via config
-	return ipAddr + ":8080", nil
+	return nil
 }
 
 func DeployNodes(img, server string, nodes ...string) error {
@@ -71,9 +71,11 @@ func DeployImageToNode(node, image, server string) error {
 	barnacleStartCmd := []string{"barnacle", "start", "--server", server}
 
 	opts := RunOpts{
-		Name:     "barnacle",
-		Detached: true,
-		Volumes:  []string{"/sys:/sys"},
+		Name:       "barnacle",
+		Detached:   true,
+		Devices:    []string{"/dev/gpiomem"},
+		Privileged: true,
+		Volumes:    []string{"/sys:/sys"},
 	}
 
 	err = dockerRun(image, node, opts, barnacleStartCmd...)
@@ -161,10 +163,12 @@ const (
 	// Args
 	allArg         = "--all"
 	detachedArg    = "--detach"
+	deviceArg      = "--device"
 	formatArg      = "--format"
 	hostArg        = "--host"
 	nameArg        = "--name"
 	portArg        = "--publish"
+	privilegedArg  = "--privileged"
 	removeArg      = "--rm"
 	volumeMountArg = "--volume"
 
@@ -173,11 +177,13 @@ const (
 )
 
 type RunOpts struct {
-	Name     string
-	Detached bool
-	Port     []string
-	Remove   bool
-	Volumes  []string
+	Name       string
+	Detached   bool
+	Devices    []string
+	Port       []string
+	Privileged bool
+	Remove     bool
+	Volumes    []string
 }
 
 func argsFromOpts(o RunOpts) (ret []string) {
@@ -189,8 +195,16 @@ func argsFromOpts(o RunOpts) (ret []string) {
 		ret = append(ret, detachedArg)
 	}
 
+	for _, dev := range o.Devices {
+		ret = append(ret, deviceArg, dev)
+	}
+
 	for _, ps := range o.Port {
 		ret = append(ret, portArg, ps)
+	}
+
+	if o.Privileged {
+		ret = append(ret, privilegedArg)
 	}
 
 	if o.Remove {
