@@ -373,22 +373,26 @@ func toKV(b []byte, sep string) map[string]string {
 func displayToWH(kv map[string]string) (int, int) {
 	displayStr, ok := kv["Display"]
 	if !ok {
+		log.Println("could not find display field")
 		return 0, 0
 	}
 
 	d := strings.Split(displayStr, "x")
 
 	if len(d) != 2 {
+		log.Printf("display field %q did not split as expected", displayStr)
 		return 0, 0
 	}
 
-	w, err := strconv.Atoi(d[0])
+	w, err := strconv.Atoi(strings.TrimSpace(d[0]))
 	if err != nil {
+		log.Printf("error parsing width %q: %s", d[0], err)
 		return 0, 0
 	}
 
-	h, err := strconv.Atoi(d[1])
+	h, err := strconv.Atoi(strings.TrimSpace(d[1]))
 	if err != nil {
+		log.Printf("error parsing height %q: %s", d[1], err)
 		return 0, 0
 	}
 
