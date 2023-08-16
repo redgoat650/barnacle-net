@@ -2,9 +2,9 @@
 
 # Derived from https://github.com/pimoroni/inky/blob/master/examples/7color/image.py.
 
-import sys
+import sys, os
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 from inky.auto import auto
 
@@ -17,12 +17,18 @@ Usage: {file} image-file [rotation] [saturation]
 """.format(file=sys.argv[0]))
     sys.exit(1)
 
-image = Image.open(sys.argv[1])
-rotatedimage = image.rotate(float(sys.argv[2]))
-resizedimage = rotatedimage.resize(inky.resolution)
+imgFullPath = sys.argv[1]
+image = Image.open(imgFullPath)
 
-if len(sys.argv) > 2:
-    saturation = float(sys.argv[3])
+image.save(os.path.join(os.path.dirname(imgFullPath), "debug_initial.jpg"))
 
-inky.set_image(resizedimage, saturation=saturation)
+image = image.rotate(float(sys.argv[2]), expand=True)
+image.save(os.path.join(os.path.dirname(imgFullPath), "debug_rotated.jpg"))
+
+image = ImageOps.fit(image, inky.resolution)
+image.save(os.path.join(os.path.dirname(imgFullPath), "debug_fitted.jpg"))
+
+saturation = float(sys.argv[3])
+
+inky.set_image(image, saturation=saturation)
 inky.show()
