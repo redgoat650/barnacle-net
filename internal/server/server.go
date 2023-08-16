@@ -1,10 +1,12 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"image"
 	"io/fs"
 	"log"
 	"net/http"
@@ -34,6 +36,7 @@ type Server struct {
 }
 
 type connInfo struct {
+	remoteAddr string
 	t          *transport.Transport
 	nodeStatus *message.NodeStatus
 	mu         *sync.Mutex
@@ -97,8 +100,9 @@ func makeWSHandler(s *Server) func(w http.ResponseWriter, r *http.Request) {
 
 		s.connMu.Lock()
 		c := &connInfo{
-			t:  t,
-			mu: new(sync.Mutex),
+			remoteAddr: remoteAddr,
+			t:          t,
+			mu:         new(sync.Mutex),
 		}
 		s.conns[remoteAddr] = c
 		s.connMu.Unlock()
@@ -316,37 +320,135 @@ func (s *Server) handleShowImages(cmd *message.Command, c *connInfo) error {
 		return s.displayOverConn(showImgPayload.Images[lastImgIdx], conn)
 	}
 
-	// No node specified - pick one at random for each image??
-	if len(s.conns) == 0 {
-		return fmt.Errorf("image(s) saved but no nodes are eligible to display")
+	lnodes, pnodes := filterOrientations(s.conns)
+
+	if len(lnodes) == 0 && len(pnodes) == 0 {
+		return errors.New("no nodes are eligible to display")
 	}
 
-	imgIdx := lastImgIdx
-	for addr, conn := range s.conns {
-		conn.mu.Lock()
-		defer conn.mu.Unlock()
+	var errs []error
 
-		log.Printf("sending image file to node %s", addr)
+	for i := lastImgIdx; i >= 0; i-- {
+		imgData := showImgPayload.Images[i]
+		b := bytes.NewBuffer(imgData.Data)
 
-		if conn.nodeStatus == nil || conn.nodeStatus.Identity.Display == nil || !conn.nodeStatus.Identity.Display.DisplayResponding {
-			log.Printf("Node %s is not initialized properly to display an image", addr)
+		img, _, err := image.Decode(b)
+		if err != nil {
+			return fmt.Errorf("decoding image data: %s", err)
+		}
+
+		rect := img.Bounds()
+
+		log.Printf("image %s is %dx%d", imgData.Name, rect.Dx(), rect.Dy())
+
+		if rect.Dx() > rect.Dy() {
+			log.Printf("image %s is landscape orientation, looking for a match...", imgData.Name)
+
+			if len(lnodes) == 0 {
+				errs = append(errs, fmt.Errorf("orientation mismatch: no landscape nodes found to display %s", imgData.Name))
+				log.Printf("no matching landscape display for image %s", imgData.Name)
+				continue
+			}
+
+			// Image is landscape
+			lnode := lnodes[0]
+			lnodes = lnodes[1:]
+
+			log.Printf("displaying image %s in landscape orientation on %s", imgData.Name, lnode.remoteAddr)
+
+			err := s.displayOverConn(imgData, lnode)
+			if err != nil {
+				errs = append(errs, err)
+			}
+
 			continue
 		}
 
-		err := s.displayOverConn(showImgPayload.Images[imgIdx], conn)
-		if err != nil {
-			return fmt.Errorf("error displaying over connection: %s", err)
-		}
+		log.Printf("image %s is portrait orientation, looking for a match...", imgData.Name)
 
-		// All active displays have been issued an image to display from this command. No point
-		// overwriting the images being displayed on any display.
-		if imgIdx == 0 {
-			return nil
+		// Image is portrait
+		if len(pnodes) == 0 {
+			errs = append(errs, fmt.Errorf("orientation mismatch: no portrait nodes found to display %s", imgData.Name))
+			log.Printf("no matching portrait display for image %s", imgData.Name)
+			continue
 		}
-		imgIdx--
+		pnode := pnodes[0]
+		pnodes = pnodes[1:]
+
+		log.Printf("displaying image %s in portrait orientation on %s", imgData.Name, pnode.remoteAddr)
+
+		err = s.displayOverConn(imgData, pnode)
+		if err != nil {
+			errs = append(errs, err)
+		}
 	}
 
-	return nil
+	var retErr error
+	for _, err := range errs {
+		if retErr == nil {
+			retErr = err
+			continue
+		}
+
+		retErr = fmt.Errorf("AND %s", err)
+	}
+
+	return retErr
+	// imgIdx := lastImgIdx
+	// for addr, conn := range s.conns {
+	// 	conn.mu.Lock()
+	// 	defer conn.mu.Unlock()
+
+	// 	log.Printf("sending image file to node %s", addr)
+
+	// 	if conn.nodeStatus == nil || conn.nodeStatus.Identity.Display == nil || !conn.nodeStatus.Identity.Display.DisplayResponding {
+	// 		log.Printf("Node %s is not initialized properly to display an image", addr)
+	// 		continue
+	// 	}
+
+	// 	err := s.displayOverConn(showImgPayload.Images[imgIdx], conn)
+	// 	if err != nil {
+	// 		return fmt.Errorf("error displaying over connection: %s", err)
+	// 	}
+
+	// 	// All active displays have been issued an image to display from this command. No point
+	// 	// overwriting the images being displayed on any display.
+	// 	if imgIdx == 0 {
+	// 		return nil
+	// 	}
+	// 	imgIdx--
+	// }
+
+	// return nil
+}
+
+func filterOrientations(conns map[string]*connInfo) (l, p []*connInfo) {
+	for _, c := range conns {
+		if c.nodeStatus == nil || c.nodeStatus.Identity.Display == nil || !c.nodeStatus.Identity.Display.DisplayResponding {
+			log.Printf("ignoring node %s, not ready", c.remoteAddr)
+			continue
+		}
+
+		if isPortrait(c.nodeStatus.Config) {
+			p = append(p, c)
+			continue
+		}
+
+		l = append(l, c)
+	}
+
+	return
+}
+
+func isPortrait(nodeCfg message.NodeConfig) bool {
+	switch nodeCfg.Orientation {
+	case message.ButtonsD, message.ButtonsU:
+		return true
+	case message.ButtonsL, message.ButtonsR:
+		return false
+	}
+
+	return false
 }
 
 func (s *Server) displayOverConn(imgData message.ImageData, conn *connInfo) error {
@@ -354,14 +456,24 @@ func (s *Server) displayOverConn(imgData message.ImageData, conn *connInfo) erro
 	t := conn.t
 
 	sat := float64(0.5)
+	rotationDeg := 0
+	switch conn.nodeStatus.Config.Orientation {
+	case message.ButtonsD:
+		rotationDeg = 270
+	case message.ButtonsR:
+		rotationDeg = 180
+	case message.ButtonsU:
+		rotationDeg = 90
+	}
 
 	c := &message.Command{
 		Op: message.SetImageCmd,
 		Payload: &message.CommandPayload{
 			SetImagePayload: &message.SetImagePayload{
-				Name:       imgData.Name,
-				Hash:       imgData.Hash,
-				Saturation: &sat,
+				Name:        imgData.Name,
+				Hash:        imgData.Hash,
+				RotationDeg: rotationDeg,
+				Saturation:  &sat,
 			},
 		},
 	}
@@ -406,9 +518,21 @@ func (s *Server) handleRegister(cmd *message.Command, c *connInfo) (*message.Res
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// Assume default config at first.
+	cfg := message.NodeConfig{
+		// Orientation: message.DefaultOrientation,
+		Orientation: message.ButtonsD,
+	}
+
+	// Preserve configuration if present.
+	if c.nodeStatus != nil {
+		cfg = c.nodeStatus.Config
+	}
+
 	c.nodeStatus = &message.NodeStatus{
 		UpdateTime: arrTime,
 		Identity:   cmd.Payload.RegisterPayload.Identity,
+		Config:     cfg,
 	}
 
 	return nil, nil

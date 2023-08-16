@@ -11,17 +11,18 @@ from inky.auto import auto
 inky = auto(ask_user=True, verbose=True)
 saturation = 0.5
 
-if len(sys.argv) == 1:
+if len(sys.argv) != 4:
     print("""
-Usage: {file} image-file [saturation]
+Usage: {file} image-file [rotation] [saturation]
 """.format(file=sys.argv[0]))
     sys.exit(1)
 
 image = Image.open(sys.argv[1])
-resizedimage = image.resize(inky.resolution)
+rotatedimage = image.rotate(float(sys.argv[2]))
+resizedimage = rotatedimage.resize(inky.resolution)
 
 if len(sys.argv) > 2:
-    saturation = float(sys.argv[2])
+    saturation = float(sys.argv[3])
 
 inky.set_image(resizedimage, saturation=saturation)
 inky.show()

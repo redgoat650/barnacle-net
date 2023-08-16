@@ -41,9 +41,10 @@ type CommandPayload struct {
 }
 
 type SetImagePayload struct {
-	Name       string   `json:"name"`
-	Hash       [32]byte `json:"hash"`
-	Saturation *float64 `json:"saturation,omitempty"`
+	Name        string   `json:"name"`
+	Hash        [32]byte `json:"hash"`
+	RotationDeg int      `json:"rotationDeg,omitempty"`
+	Saturation  *float64 `json:"saturation,omitempty"`
 }
 
 type GetImagePayload struct {
@@ -120,8 +121,9 @@ const (
 )
 
 type NodeStatus struct {
-	UpdateTime time.Time `json:"updateTime,omitempty"`
-	Identity   Identity  `json:"identity,omitempty"`
+	UpdateTime time.Time  `json:"updateTime,omitempty"`
+	Identity   Identity   `json:"identity,omitempty"`
+	Config     NodeConfig `json:"config,omitempty"`
 }
 
 type Identity struct {
@@ -133,6 +135,20 @@ type Identity struct {
 	Display        *DisplayInfo `json:"display,omitempty"`
 	DisplayIDError string       `json:"displayIDError,omitempty"`
 }
+
+type NodeConfig struct {
+	Orientation Orientation `json:"orientation"`
+}
+
+type Orientation string
+
+const (
+	ButtonsL           Orientation = "buttonsLeft"
+	ButtonsU           Orientation = "buttonsUp"
+	ButtonsR           Orientation = "buttonsRight"
+	ButtonsD           Orientation = "buttonsDown"
+	DefaultOrientation             = ButtonsL
+)
 
 type DisplayInfo struct {
 	DisplayResponding bool          `json:"displayResponding"`

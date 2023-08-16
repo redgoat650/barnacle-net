@@ -6,6 +6,7 @@ import (
 	"log"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 )
 
 const (
@@ -24,14 +25,14 @@ func NewImagePYRunner(scriptDir string) *PyRunner {
 	}
 }
 
-func (p *PyRunner) RunImagePY(filename string, saturation *float64) error {
+func (p *PyRunner) RunImagePY(filename string, rotationDeg int, saturation *float64) error {
 	if filename == "" {
 		return errors.New("invalid file name")
 	}
 
 	imagePyPath := p.getImagePyPath()
 
-	cmd := exec.Command(pythonBin, imagePyPath, filename)
+	cmd := exec.Command(pythonBin, imagePyPath, filename, strconv.Itoa(rotationDeg))
 
 	switch {
 	case saturation == nil:
@@ -47,6 +48,7 @@ func (p *PyRunner) RunImagePY(filename string, saturation *float64) error {
 	b, err := cmd.CombinedOutput()
 	if err != nil {
 		log.Println("image.py execution ended with error", err)
+		log.Println("OUTPUT:", string(b))
 		return err
 	}
 

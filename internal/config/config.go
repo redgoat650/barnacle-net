@@ -17,5 +17,5 @@ func init() {
 	viper.SetDefault(PortConfigKey, "8080")
 	viper.SetDefault(ServerConfigKey, "localhost:8080")
 	viper.SetDefault(WSPathConfigKey, "/ws")
-	viper.SetDefault(ClientTimeoutKey, 10*time.Second)
+	viper.SetDefault(ClientTimeoutKey, 60*time.Second)
 }

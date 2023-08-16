@@ -244,7 +244,7 @@ func (b *Barnacle) handleSetImage(p *message.CommandPayload) (*message.ResponseP
 		}
 	}
 
-	err = b.imagePYRunner.RunImagePY(filePath, imgData.Saturation)
+	err = b.imagePYRunner.RunImagePY(filePath, imgData.RotationDeg, imgData.Saturation)
 	if err != nil {
 		return nil, fmt.Errorf("running image setting script: %s", err)
 	}
