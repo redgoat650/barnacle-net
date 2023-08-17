@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	_ "image/jpeg"
 	"io/fs"
 	"log"
 	"net/http"
