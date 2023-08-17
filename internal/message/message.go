@@ -23,6 +23,7 @@ type Command struct {
 type Op string
 
 const (
+	ConfigSetCmd  Op = "ConfigSet"
 	SetImageCmd   Op = "setImage"
 	GetImageCmd   Op = "getImage"
 	IdentifyCmd   Op = "identify"
@@ -33,11 +34,18 @@ const (
 )
 
 type CommandPayload struct {
+	ConfigSetPayload  *ConfigSetPayload  `json:"configSetPayload,omitempty"`
 	SetImagePayload   *SetImagePayload   `json:"setImagePayload,omitempty"`
 	GetImagePayload   *GetImagePayload   `json:"getImagePayload,omitempty"`
 	ListNodesPayload  *ListNodesPayload  `json:"listNodesPayload,omitempty"`
 	RegisterPayload   *RegisterPayload   `json:"registerPayload,omitempty"`
 	ShowImagesPayload *ShowImagesPayload `json:"showImagesPayload,omitempty"`
+}
+
+type ConfigSetPayload struct {
+	Aliases        []string `json:"aliases,omitempty"`
+	NodeIdentifier string   `json:"nodeID"`
+	Orientation    *string  `json:"orientation,omitempty"`
 }
 
 type SetImagePayload struct {
@@ -138,6 +146,7 @@ type Identity struct {
 
 type NodeConfig struct {
 	Orientation Orientation `json:"orientation"`
+	Aliases     []string    `json:"aliases,omitempty"`
 }
 
 type Orientation string

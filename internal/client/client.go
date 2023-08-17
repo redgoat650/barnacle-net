@@ -62,6 +62,38 @@ func displayJSON(p any) error {
 	return nil
 }
 
+func ConfigSet(nodeID string, o *string, a []string) error {
+	t, err := connect()
+	if err != nil {
+		return err
+	}
+
+	c := &message.Command{
+		Op: message.ConfigSetCmd,
+		Payload: &message.CommandPayload{
+			ConfigSetPayload: &message.ConfigSetPayload{
+				Aliases:        a,
+				NodeIdentifier: nodeID,
+				Orientation:    o,
+			},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	resp, err := t.SendCommandWaitResponse(ctx, c)
+	if err != nil {
+		return err
+	}
+
+	if !resp.Success {
+		return fmt.Errorf("error from request: %s", resp.Error)
+	}
+
+	return nil
+}
+
 func ShowImage(node string, imgPaths ...string) error {
 	t, err := connect()
 	if err != nil {

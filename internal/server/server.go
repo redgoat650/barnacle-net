@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -156,12 +157,67 @@ func (s *Server) handleIncomingCommand(cmd *message.Command, c *connInfo) error 
 		rp, err = s.handleGetImage(cmd)
 	case message.ListFilesCmd:
 		rp, err = s.handleListFiles(cmd)
+	case message.ConfigSetCmd:
+		err = s.handleConfigSet(cmd)
 	default:
 		err = fmt.Errorf("unrecognized command: %s", cmd.Op)
 	}
 
 	log.Println("handling command", cmd.Op, err)
 	return c.t.SendResponse(rp, err, cmd)
+}
+
+func (s *Server) handleConfigSet(cmd *message.Command) error {
+	p := cmd.Payload
+
+	if p == nil || p.ConfigSetPayload == nil {
+		return errors.New("invalid config set payload")
+	}
+
+	showImgPayload := p.ConfigSetPayload
+
+	s.connMu.Lock()
+	defer s.connMu.Unlock()
+
+	// TODO: match on aliases too
+	nodeID := showImgPayload.NodeIdentifier
+
+	conn, ok := s.conns[nodeID]
+	if !ok {
+		return fmt.Errorf("could not match identifier %s", nodeID)
+	}
+
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+
+	if showImgPayload.Orientation != nil {
+		newOrientation, ok := translateOrientation(*showImgPayload.Orientation)
+		if !ok {
+			return fmt.Errorf("could not parse requested orientation: %s", *showImgPayload.Orientation)
+		}
+		conn.nodeStatus.Config.Orientation = newOrientation
+	}
+
+	if showImgPayload.Aliases != nil {
+		conn.nodeStatus.Config.Aliases = showImgPayload.Aliases
+	}
+
+	return nil
+}
+
+func translateOrientation(o string) (message.Orientation, bool) {
+	switch strings.ToLower(o) {
+	case "w", "west", "l", "left":
+		return message.ButtonsL, true
+	case "n", "north", "u", "up":
+		return message.ButtonsU, true
+	case "e", "east", "r", "right":
+		return message.ButtonsR, true
+	case "s", "south", "d", "down":
+		return message.ButtonsD, true
+	}
+
+	return "", false
 }
 
 func (s *Server) handleListFiles(cmd *message.Command) (*message.ResponsePayload, error) {
@@ -520,8 +576,7 @@ func (s *Server) handleRegister(cmd *message.Command, c *connInfo) (*message.Res
 
 	// Assume default config at first.
 	cfg := message.NodeConfig{
-		// Orientation: message.DefaultOrientation,
-		Orientation: message.ButtonsD,
+		Orientation: message.DefaultOrientation,
 	}
 
 	// Preserve configuration if present.
