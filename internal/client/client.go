@@ -3,17 +3,17 @@ package client
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
-	"os"
 	"path"
 	"time"
 
 	"github.com/redgoat650/barnacle-net/internal/config"
+	"github.com/redgoat650/barnacle-net/internal/deploy"
+	"github.com/redgoat650/barnacle-net/internal/hash"
 	"github.com/redgoat650/barnacle-net/internal/message"
 	"github.com/redgoat650/barnacle-net/internal/transport"
 	"github.com/spf13/viper"
@@ -62,24 +62,28 @@ func displayJSON(p any) error {
 	return nil
 }
 
-func ConfigSet(nodeID string, o *string, a []string) error {
+func ConfigSet(cfgs ...deploy.NodeDeploySettings) error {
 	t, err := connect()
 	if err != nil {
 		return err
+	}
+
+	cfgMap := make(map[string]message.NodeConfig)
+
+	for _, cfg := range cfgs {
+		cfgMap[cfg.Name] = cfg.Config
 	}
 
 	c := &message.Command{
 		Op: message.ConfigSetCmd,
 		Payload: &message.CommandPayload{
 			ConfigSetPayload: &message.ConfigSetPayload{
-				Aliases:        a,
-				NodeIdentifier: nodeID,
-				Orientation:    o,
+				Configs: cfgMap,
 			},
 		},
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 80*time.Second)
 	defer cancel()
 
 	resp, err := t.SendCommandWaitResponse(ctx, c)
@@ -185,12 +189,10 @@ func makeImageRefs(imgPaths ...string) ([]message.ImageData, error) {
 			continue
 		}
 
-		b, err := os.ReadFile(imgPath)
+		b, h, err := hash.ReadHashFile(imgPath)
 		if err != nil {
-			return nil, fmt.Errorf("unable to read file %s: %v", imgPath, err)
+			return nil, fmt.Errorf("unable to read/hash file %s: %v", imgPath, err)
 		}
-
-		h := sha256.Sum256(b)
 
 		_, fp := path.Split(imgPath)
 
@@ -224,7 +226,11 @@ func tryPathAsURL(imgPath string) (*message.ImageData, bool) {
 
 	b := buf.Bytes()
 
-	h := sha256.Sum256(b)
+	h, err := hash.HashBytes(b)
+	if err != nil {
+		log.Println("hashing data:", err)
+		return nil, false
+	}
 
 	return &message.ImageData{
 		Name:   fp,
@@ -246,10 +252,8 @@ func makeListNodesCmd(refresh bool) *message.Command {
 }
 
 func connect() (*transport.Transport, error) {
-	server := viper.GetString(config.ServerConfigKey)
-	path := viper.GetString(config.WSPathConfigKey)
-
-	server = "172.17.0.4:8080"
+	server := viper.GetString(config.ConnectServerAddrCfgPath)
+	path := viper.GetString(config.ConnectWebsocketPathCfgPath)
 
 	fmt.Println("Connecting to:", server, "at", path)
 

@@ -26,15 +26,10 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/redgoat650/barnacle-net/internal/config"
 	"github.com/redgoat650/barnacle-net/internal/deploy"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-)
-
-const (
-	deployNodesCfgPath = "deploy.nodes"
-	deployImageCfgPath = "deploy.image"
-	defaultDeployImage = "redgoat650/barnacle-net:scratch"
 )
 
 // barnacleDeployCmd represents the deploy command
@@ -45,19 +40,22 @@ var barnacleDeployCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		fmt.Println("deploy called")
 
-		nodes := viper.GetStringSlice(deployNodesCfgPath)
+		nodeDeploySettings, err := deploy.GetValidNodeDeploySettings()
+		if err != nil {
+			return fmt.Errorf("getting and validating node configs: %s", err)
+		}
 
-		img := viper.GetString(deployImageCfgPath)
+		img := viper.GetString(config.DeployImageCfgPath)
 		if img == "" {
 			return errors.New("must provide image to deploy")
 		}
 
-		servAddr := viper.GetString(deployServerAddrCfgPath)
+		servAddr := viper.GetString(config.ConnectServerAddrCfgPath)
 		if img == "" {
 			return errors.New("must provide server address to connect the node")
 		}
 
-		err := deploy.DeployNodes(img, servAddr, nodes...)
+		err = deploy.DeployNodes(img, servAddr, nodeDeploySettings...)
 		if err != nil {
 			log.Println("error deploying nodes:", err)
 		}
@@ -68,6 +66,4 @@ var barnacleDeployCmd = &cobra.Command{
 
 func init() {
 	barnacleCmd.AddCommand(barnacleDeployCmd)
-
-	viper.SetDefault(deployImageCfgPath, defaultDeployImage)
 }

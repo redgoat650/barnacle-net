@@ -22,17 +22,12 @@ THE SOFTWARE.
 package cmd
 
 import (
-	"errors"
 	"fmt"
 	"log"
 
 	"github.com/redgoat650/barnacle-net/internal/client"
+	"github.com/redgoat650/barnacle-net/internal/deploy"
 	"github.com/spf13/cobra"
-)
-
-const (
-	orientationFlagName = "orientation"
-	aliasFlagName       = "alias"
 )
 
 // barnacleConfigSetCmd represents the set command
@@ -43,28 +38,12 @@ var barnacleConfigSetCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		fmt.Println("set called", args)
 
-		if len(args) != 1 {
-			return errors.New("must provide an identifier for which node config is to be changed")
-		}
-
-		nodeID := args[0]
-
-		var o *string
-		if cmd.Flags().Changed(orientationFlagName) {
-			ov, err := cmd.Flags().GetString(orientationFlagName)
-			if err != nil {
-				return err
-			}
-
-			o = &ov
-		}
-
-		a, err := cmd.Flags().GetStringSlice(aliasFlagName)
+		nodeDeploySettings, err := deploy.GetValidNodeDeploySettings()
 		if err != nil {
-			return err
+			return fmt.Errorf("getting and validating node configs: %s", err)
 		}
 
-		if err := client.ConfigSet(nodeID, o, a); err != nil {
+		if err := client.ConfigSet(nodeDeploySettings...); err != nil {
 			log.Println("error setting config:", err)
 		}
 
@@ -74,7 +53,4 @@ var barnacleConfigSetCmd = &cobra.Command{
 
 func init() {
 	barnacleConfigCmd.AddCommand(barnacleConfigSetCmd)
-
-	barnacleConfigSetCmd.Flags().StringP(orientationFlagName, "o", "", "Orientation of the display, by button direction.")
-	barnacleConfigSetCmd.Flags().StringSliceP(aliasFlagName, "a", nil, "Aliases, names, identifiers for this node.")
 }

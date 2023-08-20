@@ -25,8 +25,18 @@ import (
 	"log"
 
 	"github.com/redgoat650/barnacle-net/internal/barnacle"
+	"github.com/redgoat650/barnacle-net/internal/config"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+)
+
+const (
+	nodeNameFlagName    = "name"
+	nodeNameShorthand   = "n"
+	nodeOrientFlagName  = "orientation"
+	nodeOrientShorthand = "o"
+	nodeLabelsFlagName  = "labels"
+	nodeLabelsShorthand = "l"
 )
 
 // barnacleStartCmd represents the start command
@@ -36,10 +46,19 @@ var barnacleStartCmd = &cobra.Command{
 	Long:  `Start a barnacle node.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		log.Println("start called")
-		return barnacle.RunBarnacle(viper.GetViper())
+
+		return barnacle.RunBarnacle()
 	},
 }
 
 func init() {
 	barnacleCmd.AddCommand(barnacleStartCmd)
+
+	barnacleStartCmd.Flags().StringP(nodeNameFlagName, nodeNameShorthand, "", "node name")
+	barnacleStartCmd.Flags().StringP(nodeOrientFlagName, nodeOrientShorthand, "", "node orientation based on button position [u,d,l,r]")
+	barnacleStartCmd.Flags().StringSliceP(nodeLabelsFlagName, nodeLabelsShorthand, nil, "list of aliases for a node")
+
+	viper.BindPFlag(config.NodeNameConfigKey, barnacleStartCmd.Flags().Lookup(nodeNameFlagName))
+	viper.BindPFlag(config.NodeOrientationConfigKey, barnacleStartCmd.Flags().Lookup(nodeOrientFlagName))
+	viper.BindPFlag(config.NodeLabelsConfigKey, barnacleStartCmd.Flags().Lookup(nodeLabelsFlagName))
 }

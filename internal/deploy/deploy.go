@@ -10,13 +10,67 @@ import (
 
 	"github.com/docker/cli/cli/command/formatter"
 	"github.com/docker/docker/api/types"
+	"github.com/redgoat650/barnacle-net/internal/config"
+	"github.com/redgoat650/barnacle-net/internal/message"
+	"github.com/spf13/viper"
 )
 
 const (
 	serverContainerName = "barnacle-server"
 )
 
+func GetValidNodeDeploySettings() (ret []NodeDeploySettings, err error) {
+	nodeDeployments := []NodeToDeploy{}
+
+	err = viper.UnmarshalKey(config.DeployNodesCfgPath, &nodeDeployments)
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode deployment node list: %s", err)
+	}
+
+	nodeConfigMap := map[string]message.NodeConfig{}
+	err = viper.UnmarshalKey(config.NodesConfigKey, &nodeConfigMap)
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode config: %s", err)
+	}
+
+	nameSuperset := make(map[string]struct{})
+	for i, nodeDeployCfg := range nodeDeployments {
+		if nodeDeployCfg.Name == "" || nodeDeployCfg.Addr == "" {
+			return nil, fmt.Errorf("must give node deployment %d a name and address", i)
+		}
+
+		if _, ok := nameSuperset[nodeDeployCfg.Name]; ok {
+			return nil, fmt.Errorf("name overlaps with existing identifier (no duplicate names allowed): %s", nodeDeployCfg.Name)
+		}
+		nameSuperset[nodeDeployCfg.Name] = struct{}{}
+
+		thisNodeDeploySettings := NodeDeploySettings{
+			NodeToDeploy: nodeDeployCfg,
+		}
+
+		if nodeCfg, ok := nodeConfigMap[nodeDeployCfg.Name]; ok {
+			if nodeCfg.Orientation != nil {
+				orient, ok := config.TranslateOrientation(*nodeCfg.Orientation)
+				if !ok {
+					return nil, fmt.Errorf("invalid orientation provided for %s: %s", nodeDeployCfg.Name, *nodeCfg.Orientation)
+				}
+
+				validatedOrientStr := string(orient)
+				nodeCfg.Orientation = &validatedOrientStr
+			}
+
+			thisNodeDeploySettings.Config = nodeCfg
+		}
+
+		ret = append(ret, thisNodeDeploySettings)
+	}
+
+	return ret, nil
+}
+
 func DeployServer(image string) error {
+	log.Printf("deploying %s as a local server.", image)
+
 	err := cleanupExistingImage(image, "")
 	if err != nil {
 		return err
@@ -35,22 +89,21 @@ func DeployServer(image string) error {
 		return err
 	}
 
-	// c, err := dockerContainerInspect(serverContainerName, "")
-	// if err != nil {
-	// 	return "", err
-	// }
-
-	// if len(c) != 1 {
-	// 	return "", fmt.Errorf("unexpected number of containers returned from inspect: %d", len(c))
-	// }
-
-	// ipAddr := c[0].NetworkSettings.IPAddress
-
 	// TODO: Port must be controllable via config
 	return nil
 }
 
-func DeployNodes(img, server string, nodes ...string) error {
+type NodeDeploySettings struct {
+	NodeToDeploy
+	Config message.NodeConfig `json:"config"`
+}
+
+type NodeToDeploy struct {
+	Addr string `json:"addr"`
+	Name string `json:"name"`
+}
+
+func DeployNodes(img, server string, nodes ...NodeDeploySettings) error {
 	for _, node := range nodes {
 		if err := DeployImageToNode(node, img, server); err != nil {
 			return err
@@ -60,15 +113,27 @@ func DeployNodes(img, server string, nodes ...string) error {
 	return nil
 }
 
-func DeployImageToNode(node, image, server string) error {
-	log.Printf("Deploying %s to host %s", image, node)
+func DeployImageToNode(node NodeDeploySettings, image, server string) error {
+	log.Printf("deploying %s to host %s, node will be named %s.", image, node.Addr, node.Name)
 
-	err := cleanupExistingImage(image, node)
+	err := cleanupExistingImage(image, node.Addr)
 	if err != nil {
 		return err
 	}
 
-	barnacleStartCmd := []string{"barnacle", "start", "--server", server}
+	barnacleStartCmd := []string{
+		"barnacle", "start",
+		"--server", server,
+		"--name", node.Name,
+	}
+
+	if node.Config.Orientation != nil {
+		barnacleStartCmd = append(barnacleStartCmd, "--orientation", *node.Config.Orientation)
+	}
+
+	if node.Config.Labels != nil {
+		barnacleStartCmd = append(barnacleStartCmd, "--labels", fmt.Sprintf("%q", strings.Join(node.Config.Labels, ",")))
+	}
 
 	opts := RunOpts{
 		Name:       "barnacle",
@@ -78,7 +143,7 @@ func DeployImageToNode(node, image, server string) error {
 		Volumes:    []string{"/sys:/sys"},
 	}
 
-	err = dockerRun(image, node, opts, barnacleStartCmd...)
+	err = dockerRun(image, node.Addr, opts, barnacleStartCmd...)
 	if err != nil {
 		return err
 	}
@@ -86,13 +151,13 @@ func DeployImageToNode(node, image, server string) error {
 	return nil
 }
 
-func cleanupExistingImage(image, node string) error {
+func cleanupExistingImage(image, nodeAddr string) error {
 	var nodeStr string
-	if node != "" {
+	if nodeAddr != "" {
 		nodeStr = " from node %s"
 	}
 
-	list, err := dockerContainerList(node)
+	list, err := dockerContainerList(nodeAddr)
 	if err != nil {
 		return err
 	}
@@ -106,19 +171,19 @@ func cleanupExistingImage(image, node string) error {
 				return fmt.Errorf("no ID for container with image %s", cntr["Image"])
 			}
 
-			err := dockerContainerStop(id, node)
+			err := dockerContainerStop(id, nodeAddr)
 			if err != nil {
 				return fmt.Errorf("stopping container %s%s: %s", id, nodeStr, err)
 			}
 
-			err = dockerContainerRemove(id, node)
+			err = dockerContainerRemove(id, nodeAddr)
 			if err != nil {
 				return fmt.Errorf("removing container %s%s: %s", id, nodeStr, err)
 			}
 		}
 	}
 
-	imgs, err := dockerImageList(node)
+	imgs, err := dockerImageList(nodeAddr)
 	if err != nil {
 		return err
 	}
@@ -129,7 +194,7 @@ func cleanupExistingImage(image, node string) error {
 		if fmt.Sprintf("%s:%s", img["Repository"], img["Tag"]) == image {
 			id := img["ID"]
 
-			err := dockerImageRemove(id, node)
+			err := dockerImageRemove(id, nodeAddr)
 			if err != nil {
 				return fmt.Errorf("removing image %s%s: %s", id, nodeStr, err)
 			}
@@ -218,9 +283,9 @@ func argsFromOpts(o RunOpts) (ret []string) {
 	return ret
 }
 
-func dockerRun(image, node string, opts RunOpts, cmd ...string) error {
+func dockerRun(image, addr string, opts RunOpts, cmd ...string) error {
 	// docker run <image> cmd...
-	args := hostArgs(node)
+	args := hostArgs(addr)
 
 	args = append(args, runSubCmd)
 
@@ -237,9 +302,9 @@ func dockerRun(image, node string, opts RunOpts, cmd ...string) error {
 	return err
 }
 
-func dockerContainerStop(id, node string) error {
+func dockerContainerStop(id, addr string) error {
 	// docker --host=<node> container stop <id>
-	args := hostArgs(node)
+	args := hostArgs(addr)
 
 	args = append(args, containerSubCmd, stopSubCmd, id)
 
@@ -250,17 +315,17 @@ func dockerContainerStop(id, node string) error {
 	return err
 }
 
-func dockerContainerRemove(id, node string) error {
-	return dockerResourceRemove(id, containerSubCmd, node)
+func dockerContainerRemove(id, addr string) error {
+	return dockerResourceRemove(id, containerSubCmd, addr)
 }
 
-func dockerImageRemove(id, node string) error {
-	return dockerResourceRemove(id, imageSubCmd, node)
+func dockerImageRemove(id, addr string) error {
+	return dockerResourceRemove(id, imageSubCmd, addr)
 }
 
-func dockerResourceRemove(id, resource, node string) error {
+func dockerResourceRemove(id, resource, addr string) error {
 	// docker --host=<node> <resource> remove <id>
-	args := hostArgs(node)
+	args := hostArgs(addr)
 
 	args = append(args, resource, rmSubCmd, id)
 
@@ -271,9 +336,9 @@ func dockerResourceRemove(id, resource, node string) error {
 	return err
 }
 
-func dockerContainerInspect(id, node string) ([]types.ContainerJSON, error) {
+func dockerContainerInspect(id, addr string) ([]types.ContainerJSON, error) {
 	// docker container inspect <id> --format json
-	args := hostArgs(node)
+	args := hostArgs(addr)
 
 	args = append(args, containerSubCmd, inspectSubCmd, id)
 	args = append(args, formatArgs()...)
@@ -297,9 +362,9 @@ func dockerContainerInspect(id, node string) ([]types.ContainerJSON, error) {
 	return c, nil
 }
 
-func dockerContainerList(node string) (ret []formatter.SubHeaderContext, err error) {
+func dockerContainerList(addr string) (ret []formatter.SubHeaderContext, err error) {
 	// docker --host <node> container ls --format json
-	args := hostArgs(node)
+	args := hostArgs(addr)
 
 	args = append(args, containerSubCmd, listSubCmd, allArg)
 	args = append(args, formatArgs()...)
@@ -327,9 +392,9 @@ func dockerContainerList(node string) (ret []formatter.SubHeaderContext, err err
 	return ret, nil
 }
 
-func dockerImageList(node string) (ret []formatter.SubHeaderContext, err error) {
+func dockerImageList(addr string) (ret []formatter.SubHeaderContext, err error) {
 	// docker --host <node> image ls --format json
-	args := hostArgs(node)
+	args := hostArgs(addr)
 
 	args = append(args, imageSubCmd, listSubCmd)
 	args = append(args, formatArgs()...)
@@ -364,14 +429,14 @@ func formatArgs() []string {
 	}
 }
 
-func hostArgs(node string) []string {
-	if node == "" {
+func hostArgs(addr string) []string {
+	if addr == "" {
 		return nil
 	}
 
 	return []string{
 		hostArg,
-		node,
+		addr,
 	}
 }
 

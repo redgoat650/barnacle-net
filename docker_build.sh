@@ -28,6 +28,9 @@ docker buildx build \
     .
 
 
+go install
+alias bnet="barnacle-net"
+
 # # Build the app
 # go build
 # mv ./barnacle-net ./docker/barnacle-net

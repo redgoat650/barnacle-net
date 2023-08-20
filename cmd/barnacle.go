@@ -30,7 +30,8 @@ import (
 )
 
 const (
-	serverAlias = "s"
+	serverFlagName = "server"
+	serverAlias    = "s"
 )
 
 // barnacleCmd represents the barnacle command
@@ -46,6 +47,6 @@ var barnacleCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(barnacleCmd)
 
-	barnacleCmd.PersistentFlags().StringP(config.ServerConfigKey, serverAlias, "", "Server address to connect to.")
-	viper.BindPFlag(config.ServerConfigKey, barnacleCmd.PersistentFlags().Lookup(config.ServerConfigKey))
+	barnacleCmd.PersistentFlags().StringP(serverFlagName, serverAlias, "", "Server address to connect to.")
+	viper.BindPFlag(config.ConnectServerAddrCfgPath, barnacleCmd.PersistentFlags().Lookup(serverFlagName))
 }

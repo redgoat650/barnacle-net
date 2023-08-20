@@ -3,7 +3,6 @@ package server
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"image"
@@ -13,12 +12,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/redgoat650/barnacle-net/internal/config"
+	"github.com/redgoat650/barnacle-net/internal/hash"
 	"github.com/redgoat650/barnacle-net/internal/message"
 	"github.com/redgoat650/barnacle-net/internal/transport"
 	"github.com/spf13/viper"
@@ -45,7 +44,7 @@ type connInfo struct {
 }
 
 func RunServer(v *viper.Viper) error {
-	port := v.GetString(config.PortConfigKey) // ":8080"
+	port := v.GetString(config.DeployServerPortConfigKey) // ":8080"
 	addr := ":" + port
 
 	s := NewServer()
@@ -175,50 +174,54 @@ func (s *Server) handleConfigSet(cmd *message.Command) error {
 		return errors.New("invalid config set payload")
 	}
 
-	showImgPayload := p.ConfigSetPayload
+	configSetPayload := p.ConfigSetPayload
 
-	s.connMu.Lock()
-	defer s.connMu.Unlock()
-
-	// TODO: match on aliases too
-	nodeID := showImgPayload.NodeIdentifier
-
-	conn, ok := s.conns[nodeID]
-	if !ok {
-		return fmt.Errorf("could not match identifier %s", nodeID)
-	}
-
-	conn.mu.Lock()
-	defer conn.mu.Unlock()
-
-	if showImgPayload.Orientation != nil {
-		newOrientation, ok := translateOrientation(*showImgPayload.Orientation)
-		if !ok {
-			return fmt.Errorf("could not parse requested orientation: %s", *showImgPayload.Orientation)
+	for name, cfg := range configSetPayload.Configs {
+		conn, found := s.getConnInfoByName(name)
+		if !found {
+			return fmt.Errorf("could not find connected node with name %s", name)
 		}
-		conn.nodeStatus.Config.Orientation = newOrientation
-	}
 
-	if showImgPayload.Aliases != nil {
-		conn.nodeStatus.Config.Aliases = showImgPayload.Aliases
+		c := &message.Command{
+			Op: message.ConfigSetCmd,
+			Payload: &message.CommandPayload{
+				ConfigSetPayload: &message.ConfigSetPayload{
+					Configs: map[string]message.NodeConfig{
+						name: cfg,
+					},
+				},
+			},
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		resp, err := conn.t.SendCommandWaitResponse(ctx, c)
+		if err != nil {
+			return fmt.Errorf("sending config set command to node: %s", err)
+		}
+
+		if !resp.Success {
+			return fmt.Errorf("unable to set config on node %s: %s", name, resp.Error)
+		}
 	}
 
 	return nil
 }
 
-func translateOrientation(o string) (message.Orientation, bool) {
-	switch strings.ToLower(o) {
-	case "w", "west", "l", "left":
-		return message.ButtonsL, true
-	case "n", "north", "u", "up":
-		return message.ButtonsU, true
-	case "e", "east", "r", "right":
-		return message.ButtonsR, true
-	case "s", "south", "d", "down":
-		return message.ButtonsD, true
+func (s *Server) getConnInfoByName(name string) (*connInfo, bool) {
+	s.connMu.Lock()
+	defer s.connMu.Unlock()
+
+	for gotID, chkConn := range s.conns {
+		if chkConn != nil && chkConn.nodeStatus != nil && chkConn.nodeStatus.Identity.Name == name {
+			log.Println("matched node by name", name, gotID)
+			return chkConn, true
+		}
 	}
 
-	return "", false
+	// Could not find a node matching this config.
+	return nil, false
 }
 
 func (s *Server) handleListFiles(cmd *message.Command) (*message.ResponsePayload, error) {
@@ -236,7 +239,7 @@ func (s *Server) handleListFiles(cmd *message.Command) (*message.ResponsePayload
 
 		name := info.Name()
 
-		b, err := os.ReadFile(path)
+		_, h, err := hash.ReadHashFile(path)
 		if err != nil {
 			return fmt.Errorf("unable to read file on server %s: %s", name, err)
 		}
@@ -246,7 +249,7 @@ func (s *Server) handleListFiles(cmd *message.Command) (*message.ResponsePayload
 			Size:    info.Size(),
 			Mode:    info.Mode(),
 			ModTime: info.ModTime(),
-			Hash:    sha256.Sum256(b),
+			Hash:    h,
 		})
 
 		return nil
@@ -319,12 +322,10 @@ func (s *Server) handleGetImage(cmd *message.Command) (*message.ResponsePayload,
 
 	filePath := s.imgFilePath(fileName)
 
-	b, err := os.ReadFile(filePath)
+	b, h, err := hash.ReadHashFile(filePath)
 	if err != nil {
 		return nil, err
 	}
-
-	h := sha256.Sum256(b)
 
 	return &message.ResponsePayload{
 		GetImageResponse: &message.GetImageResponsePayload{
@@ -360,9 +361,9 @@ func (s *Server) handleShowImages(cmd *message.Command, c *connInfo) error {
 	s.connMu.RLock()
 	defer s.connMu.RUnlock()
 
-	node := showImgPayload.Node
+	node := showImgPayload.NodeName
 	if node != "" {
-		conn, ok := s.conns[node]
+		conn, ok := s.getConnInfoByName(node)
 		if !ok {
 			return fmt.Errorf("specified node %s is not connected to the net", node)
 		}
@@ -451,32 +452,6 @@ func (s *Server) handleShowImages(cmd *message.Command, c *connInfo) error {
 	}
 
 	return retErr
-	// imgIdx := lastImgIdx
-	// for addr, conn := range s.conns {
-	// 	conn.mu.Lock()
-	// 	defer conn.mu.Unlock()
-
-	// 	log.Printf("sending image file to node %s", addr)
-
-	// 	if conn.nodeStatus == nil || conn.nodeStatus.Identity.Display == nil || !conn.nodeStatus.Identity.Display.DisplayResponding {
-	// 		log.Printf("Node %s is not initialized properly to display an image", addr)
-	// 		continue
-	// 	}
-
-	// 	err := s.displayOverConn(showImgPayload.Images[imgIdx], conn)
-	// 	if err != nil {
-	// 		return fmt.Errorf("error displaying over connection: %s", err)
-	// 	}
-
-	// 	// All active displays have been issued an image to display from this command. No point
-	// 	// overwriting the images being displayed on any display.
-	// 	if imgIdx == 0 {
-	// 		return nil
-	// 	}
-	// 	imgIdx--
-	// }
-
-	// return nil
 }
 
 func filterOrientations(conns map[string]*connInfo) (l, p []*connInfo) {
@@ -486,7 +461,7 @@ func filterOrientations(conns map[string]*connInfo) (l, p []*connInfo) {
 			continue
 		}
 
-		if isPortrait(c.nodeStatus.Config) {
+		if isPortrait(c.nodeStatus.Identity) {
 			p = append(p, c)
 			continue
 		}
@@ -497,8 +472,8 @@ func filterOrientations(conns map[string]*connInfo) (l, p []*connInfo) {
 	return
 }
 
-func isPortrait(nodeCfg message.NodeConfig) bool {
-	switch nodeCfg.Orientation {
+func isPortrait(identity message.Identity) bool {
+	switch identity.Orientation {
 	case message.ButtonsD, message.ButtonsU:
 		return true
 	case message.ButtonsL, message.ButtonsR:
@@ -513,24 +488,14 @@ func (s *Server) displayOverConn(imgData message.ImageData, conn *connInfo) erro
 	t := conn.t
 
 	sat := float64(0.5)
-	rotationDeg := 0
-	switch conn.nodeStatus.Config.Orientation {
-	case message.ButtonsD:
-		rotationDeg = 270
-	case message.ButtonsR:
-		rotationDeg = 180
-	case message.ButtonsU:
-		rotationDeg = 90
-	}
 
 	c := &message.Command{
 		Op: message.SetImageCmd,
 		Payload: &message.CommandPayload{
 			SetImagePayload: &message.SetImagePayload{
-				Name:        imgData.Name,
-				Hash:        imgData.Hash,
-				RotationDeg: rotationDeg,
-				Saturation:  &sat,
+				Name:       imgData.Name,
+				Hash:       imgData.Hash,
+				Saturation: &sat,
 			},
 		},
 	}
@@ -575,20 +540,9 @@ func (s *Server) handleRegister(cmd *message.Command, c *connInfo) (*message.Res
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Assume default config at first.
-	cfg := message.NodeConfig{
-		Orientation: message.DefaultOrientation,
-	}
-
-	// Preserve configuration if present.
-	if c.nodeStatus != nil {
-		cfg = c.nodeStatus.Config
-	}
-
 	c.nodeStatus = &message.NodeStatus{
 		UpdateTime: arrTime,
 		Identity:   cmd.Payload.RegisterPayload.Identity,
-		Config:     cfg,
 	}
 
 	return nil, nil
@@ -638,15 +592,6 @@ func (s *Server) handleListNodes(cmd *message.Command) (*message.ResponsePayload
 			Nodes: nodeStatusMap,
 		},
 	}, nil
-}
-
-func (s *Server) identifyRemoteAddr(remoteAddr string) error {
-	connInfo, ok := s.lookupConn(remoteAddr)
-	if !ok {
-		return fmt.Errorf("could not identify unknown connection: %s", remoteAddr)
-	}
-
-	return s.updateConnIdentity(connInfo)
 }
 
 func (s *Server) updateConnIdentity(connInfo *connInfo) error {
@@ -711,41 +656,6 @@ func (s *Server) handleIdentifyResponse(resp *message.Response, connInfo *connIn
 		Identity:   resp.Payload.IdentifyResponse.Identity,
 	}, nil
 }
-
-func (s *Server) lookupConn(addr string) (*connInfo, bool) {
-	s.connMu.Lock()
-	defer s.connMu.Unlock()
-	connInfo, ok := s.conns[addr]
-	return connInfo, ok
-}
-
-// func handleIncomingCmds(ws *websocket.Conn) {
-// 	// Server control logic goes here.
-// }
-
-// func listen(conn *websocket.Conn) {
-// 	for {
-// // Read message from the connected client.
-// messageType, messageContent, err := conn.ReadMessage()
-// timeReceive := time.Now()
-// if err != nil {
-// 	log.Println(err)
-// 	return
-// }
-
-// // Log the message.
-// log.Println(string(messageContent))
-
-// // reponse message
-// messageResponse := fmt.Sprintf("Your message is: %s. Time received : %v", messageContent, timeReceive)
-
-// if err := conn.WriteMessage(messageType, []byte(messageResponse)); err != nil {
-// 	log.Println(err)
-// 	return
-// }
-
-// 	}
-// }
 
 func setupRoutes(s *Server) {
 	http.HandleFunc("/", homePage)

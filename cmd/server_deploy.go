@@ -26,13 +26,10 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/redgoat650/barnacle-net/internal/config"
 	"github.com/redgoat650/barnacle-net/internal/deploy"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-)
-
-const (
-	deployServerAddrCfgPath = "deploy.serverAddr"
 )
 
 // serverDeployCmd represents the deploy command
@@ -43,7 +40,7 @@ var serverDeployCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		fmt.Println("deploy called")
 
-		img := viper.GetString(deployImageCfgPath)
+		img := viper.GetString(config.DeployImageCfgPath)
 		if img == "" {
 			return errors.New("must provide image to deploy")
 		}
@@ -52,14 +49,6 @@ var serverDeployCmd = &cobra.Command{
 		if err != nil {
 			log.Println("deploying server:", err)
 		}
-
-		// log.Printf("Listening on %s", servAddr)
-
-		// viper.Set(deployServerAddrCfgPath, servAddr)
-		// err = viper.WriteConfig()
-		// if err != nil {
-		// 	log.Println("error writing config:", err)
-		// }
 
 		return nil
 	},

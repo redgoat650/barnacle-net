@@ -43,16 +43,19 @@ type CommandPayload struct {
 }
 
 type ConfigSetPayload struct {
-	Aliases        []string `json:"aliases,omitempty"`
-	NodeIdentifier string   `json:"nodeID"`
-	Orientation    *string  `json:"orientation,omitempty"`
+	Configs map[string]NodeConfig `json:"configs,omitempty"`
+}
+
+type NodeConfig struct {
+	Labels      []string `json:"labels,omitempty"`
+	Orientation *string  `json:"orientation,omitempty"`
 }
 
 type SetImagePayload struct {
 	Name        string   `json:"name"`
-	Hash        [32]byte `json:"hash"`
-	RotationDeg int      `json:"rotationDeg,omitempty"`
+	Hash        string   `json:"hash"`
 	Saturation  *float64 `json:"saturation,omitempty"`
+	RotationDeg int      `json:"rotationDeg,omitempty"`
 }
 
 type GetImagePayload struct {
@@ -68,15 +71,15 @@ type RegisterPayload struct {
 }
 
 type ShowImagesPayload struct {
-	Node   string      `json:"node,omitempty"`
-	Images []ImageData `json:"images,omitempty"`
+	NodeName string      `json:"node,omitempty"`
+	Images   []ImageData `json:"images,omitempty"`
 }
 
 type ImageData struct {
-	Name   string   `json:"name"`
-	Origin string   `json:"origin"`
-	Hash   [32]byte `json:"hash"`
-	Data   []byte   `json:"data,omitempty"`
+	Name   string `json:"name"`
+	Origin string `json:"origin"`
+	Hash   string `json:"hash"`
+	Data   []byte `json:"data,omitempty"`
 }
 
 type Response struct {
@@ -96,9 +99,9 @@ type ResponsePayload struct {
 }
 
 type GetImageResponsePayload struct {
-	Name      string   `json:"name"`
-	ImageData []byte   `json:"imgData,omitempty"`
-	Hash      [32]byte `json:"hash"`
+	Name      string `json:"name"`
+	ImageData []byte `json:"imgData,omitempty"`
+	Hash      string `json:"hash"`
 }
 
 type IdentifyResponsePayload struct {
@@ -118,7 +121,7 @@ type FileInfo struct {
 	Size    int64       `json:"size"`
 	Mode    os.FileMode `json:"mode"`
 	ModTime time.Time   `json:"modTime"`
-	Hash    [32]byte    `json:"hash"`
+	Hash    string      `json:"hash"`
 }
 
 type Role string
@@ -129,12 +132,14 @@ const (
 )
 
 type NodeStatus struct {
-	UpdateTime time.Time  `json:"updateTime,omitempty"`
-	Identity   Identity   `json:"identity,omitempty"`
-	Config     NodeConfig `json:"config,omitempty"`
+	UpdateTime time.Time `json:"updateTime,omitempty"`
+	Identity   Identity  `json:"identity,omitempty"`
 }
 
 type Identity struct {
+	Name           string       `json:"name"`
+	Aliases        []string     `json:"aliases,omitempty"`
+	Orientation    Orientation  `json:"orientation"`
 	Role           Role         `json:"role"`
 	Username       string       `json:"username"`
 	Hostname       string       `json:"hostname"`
@@ -142,11 +147,6 @@ type Identity struct {
 	PID            int          `json:"pid"`
 	Display        *DisplayInfo `json:"display,omitempty"`
 	DisplayIDError string       `json:"displayIDError,omitempty"`
-}
-
-type NodeConfig struct {
-	Orientation Orientation `json:"orientation"`
-	Aliases     []string    `json:"aliases,omitempty"`
 }
 
 type Orientation string

@@ -2,7 +2,6 @@ package barnacle
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -14,9 +13,11 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/redgoat650/barnacle-net/internal/config"
+	"github.com/redgoat650/barnacle-net/internal/hash"
 	"github.com/redgoat650/barnacle-net/internal/message"
 	"github.com/redgoat650/barnacle-net/internal/python"
 	"github.com/redgoat650/barnacle-net/internal/transport"
@@ -33,12 +34,13 @@ type Barnacle struct {
 	imageDir      string
 	imagePYRunner *python.PyRunner
 	t             *transport.Transport
+	cfgMu         *sync.Mutex
 }
 
-func RunBarnacle(v *viper.Viper) error {
+func RunBarnacle() error {
 	var reconnectRetries int
 	for {
-		err := runBarnacle(v)
+		err := runBarnacle()
 		if err != nil {
 			if errors.Is(err, ErrInterrupt) {
 				log.Println("node shutting down:", err)
@@ -53,12 +55,8 @@ func RunBarnacle(v *viper.Viper) error {
 	}
 }
 
-func runBarnacle(v *viper.Viper) error {
-	server := v.GetString(config.ServerConfigKey)
-	path := v.GetString(config.WSPathConfigKey)
-	log.Println("connecting to:", server, "at", path)
-
-	b, err := NewBarnacle(server, path)
+func runBarnacle() error {
+	b, err := NewBarnacle()
 	if err != nil {
 		return fmt.Errorf("instantiating barnacle: %s", err)
 	}
@@ -73,7 +71,12 @@ func runBarnacle(v *viper.Viper) error {
 	return b.handleIncomingCmds()
 }
 
-func NewBarnacle(server, path string) (*Barnacle, error) {
+func NewBarnacle() (*Barnacle, error) {
+	server := viper.GetString(config.ConnectServerAddrCfgPath)
+	path := viper.GetString(config.ConnectWebsocketPathCfgPath)
+
+	log.Println("connecting to:", server, "at", path)
+
 	t, err := transport.NewTransportConn(server, path)
 	if err != nil {
 		return nil, err
@@ -90,6 +93,7 @@ func NewBarnacle(server, path string) (*Barnacle, error) {
 		imageDir:      imageDir,
 		imagePYRunner: python.NewImagePYRunner(getScriptDir()),
 		t:             t,
+		cfgMu:         new(sync.Mutex),
 	}
 
 	return b, nil
@@ -174,6 +178,8 @@ func (b *Barnacle) handleIncomingCommand(cmd *message.Command) error {
 		rp, err = b.handleSetImage(cmd.Payload)
 	case message.ListFilesCmd:
 		rp, err = b.handleListFiles()
+	case message.ConfigSetCmd:
+		err = b.handleConfigSet(cmd.Payload)
 	default:
 		err = fmt.Errorf("unrecognized command: %s", cmd.Op)
 	}
@@ -185,6 +191,55 @@ func (b *Barnacle) handleIncomingCommand(cmd *message.Command) error {
 	return b.t.SendResponse(rp, err, cmd)
 }
 
+func (b *Barnacle) handleConfigSet(p *message.CommandPayload) error {
+	if p == nil || p.ConfigSetPayload == nil {
+		return errors.New("invalid command payload")
+	}
+
+	// Ensure config changes atomically.
+	b.cfgMu.Lock()
+	defer b.cfgMu.Unlock()
+
+	changed := false
+	cfgPl := p.ConfigSetPayload.Configs
+
+	if len(cfgPl) != 1 {
+		return fmt.Errorf("malformed set config payload without config len 1: len is %d", len(cfgPl))
+	}
+
+	var name string
+	var cfg message.NodeConfig
+	for name, cfg = range cfgPl {
+	}
+
+	wantName := viper.GetString(config.NodeNameConfigKey)
+	if name != wantName {
+		return fmt.Errorf("malformed set config, name does not match got %s != want %s", name, wantName)
+	}
+
+	if cfg.Orientation != nil {
+		viper.Set(config.NodeOrientationConfigKey, *cfg.Orientation)
+		changed = true
+	}
+
+	if cfg.Labels != nil {
+		viper.Set(config.NodeLabelsConfigKey, cfg.Labels)
+		changed = true
+	}
+
+	if changed {
+		// Register asynchronously (since it might take a bit to perform the eeprom checks).
+		// Server can assume an eventual update.
+		go func() {
+			if err := b.Register(); err != nil {
+				log.Println("node unable to re-register after config change:", err)
+			}
+		}()
+	}
+
+	return nil
+}
+
 func (b *Barnacle) handleListFiles() (*message.ResponsePayload, error) {
 	var ret []message.FileInfo
 
@@ -193,15 +248,18 @@ func (b *Barnacle) handleListFiles() (*message.ResponsePayload, error) {
 			return fmt.Errorf("walk error: %s", err)
 		}
 
+		name := info.Name()
+		fullPath := filepath.Join(b.imageDir, name)
+
+		log.Println("Walk reached", name, fullPath, "dir?", info.IsDir())
+
 		if info.IsDir() {
 			return nil
 		}
 
-		name := info.Name()
-
-		b, err := os.ReadFile(name)
+		_, h, err := hash.ReadHashFile(fullPath)
 		if err != nil {
-			return fmt.Errorf("unable to read file %s: %s", name, err)
+			return fmt.Errorf("unable to read file %s: %s", fullPath, err)
 		}
 
 		ret = append(ret, message.FileInfo{
@@ -209,7 +267,7 @@ func (b *Barnacle) handleListFiles() (*message.ResponsePayload, error) {
 			Size:    info.Size(),
 			Mode:    info.Mode(),
 			ModTime: info.ModTime(),
-			Hash:    sha256.Sum256(b),
+			Hash:    h,
 		})
 
 		return nil
@@ -244,12 +302,28 @@ func (b *Barnacle) handleSetImage(p *message.CommandPayload) (*message.ResponseP
 		}
 	}
 
-	err = b.imagePYRunner.RunImagePY(filePath, imgData.RotationDeg, imgData.Saturation)
+	orient := viper.GetString(config.NodeOrientationConfigKey)
+	rot := orientationToRotation(message.Orientation(orient))
+
+	err = b.imagePYRunner.RunImagePY(filePath, rot, imgData.Saturation)
 	if err != nil {
 		return nil, fmt.Errorf("running image setting script: %s", err)
 	}
 
 	return nil, nil
+}
+
+func orientationToRotation(o message.Orientation) int {
+	rotationDeg := 0
+	switch o {
+	case message.ButtonsD:
+		rotationDeg = 270
+	case message.ButtonsR:
+		rotationDeg = 180
+	case message.ButtonsU:
+		rotationDeg = 90
+	}
+	return rotationDeg
 }
 
 func (b *Barnacle) downloadFile(fileName string) error {
@@ -329,7 +403,14 @@ func (b *Barnacle) getIdentity() (*message.Identity, error) {
 		// Continue to identify anyway, display will be nil.
 	}
 
+	name := viper.GetString(config.NodeNameConfigKey)
+	orient := viper.GetString(config.NodeOrientationConfigKey)
+	aliases := viper.GetStringSlice(config.NodeLabelsConfigKey)
+
 	return &message.Identity{
+		Name:           name,
+		Orientation:    message.Orientation(orient),
+		Aliases:        aliases,
 		Role:           message.NodeRole,
 		Username:       user.Name,
 		Hostname:       host,
