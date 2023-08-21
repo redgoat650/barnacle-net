@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -356,35 +357,42 @@ func (s *Server) handleShowImages(cmd *message.Command, c *connInfo) error {
 		}
 	}
 
-	lastImgIdx := len(showImgPayload.Images) - 1
-
 	s.connMu.RLock()
 	defer s.connMu.RUnlock()
 
-	node := showImgPayload.NodeName
-	if node != "" {
-		conn, ok := s.getConnInfoByName(node)
-		if !ok {
-			return fmt.Errorf("specified node %s is not connected to the net", node)
+	var filteredConns []*connInfo
+
+	nodeSelectors := showImgPayload.NodeSelectors
+	for _, conn := range s.conns {
+		// Default assume match ANY
+		includeConn := true
+		for _, sel := range nodeSelectors {
+			match := connMatchesSelector(conn, sel)
+
+			switch sel.Logic {
+			case message.LogicAnd:
+				includeConn = includeConn && match
+			case message.LogicOr:
+				includeConn = includeConn || match
+			default:
+				includeConn = includeConn && match
+			}
 		}
 
-		conn.mu.Lock()
-		defer conn.mu.Unlock()
-
-		if conn.nodeStatus == nil || conn.nodeStatus.Identity.Display == nil || !conn.nodeStatus.Identity.Display.DisplayResponding {
-			return fmt.Errorf("specified node %s is not initialized properly to display an image", node)
+		if includeConn {
+			filteredConns = append(filteredConns, conn)
 		}
-
-		return s.displayOverConn(showImgPayload.Images[lastImgIdx], conn)
 	}
 
-	lnodes, pnodes := filterOrientations(s.conns)
-
-	if len(lnodes) == 0 && len(pnodes) == 0 {
+	if len(filteredConns) == 0 {
 		return errors.New("no nodes are eligible to display")
 	}
 
+	lnodes, pnodes := filterOrientations(filteredConns)
+
 	var errs []error
+
+	lastImgIdx := len(showImgPayload.Images) - 1
 
 	for i := lastImgIdx; i >= 0; i-- {
 		imgData := showImgPayload.Images[i]
@@ -399,43 +407,37 @@ func (s *Server) handleShowImages(cmd *message.Command, c *connInfo) error {
 
 		log.Printf("image %s is %dx%d", imgData.Name, rect.Dx(), rect.Dy())
 
+		prefer, backup := &pnodes, &lnodes
 		if rect.Dx() > rect.Dy() {
-			log.Printf("image %s is landscape orientation, looking for a match...", imgData.Name)
+			prefer, backup = backup, prefer
+		}
 
-			if len(lnodes) == 0 {
-				errs = append(errs, fmt.Errorf("orientation mismatch: no landscape nodes found to display %s", imgData.Name))
-				log.Printf("no matching landscape display for image %s", imgData.Name)
+		var displayOnNode *connInfo
+		if len(*prefer) > 0 {
+			// Display available in preferred orientation
+			displayOnNode = (*prefer)[0]
+			*prefer = (*prefer)[1:]
+
+			log.Printf("displaying image %s in preferred orientation on %s", imgData.Name, displayOnNode.remoteAddr)
+
+		} else {
+			if showImgPayload.MustFitOrientation {
+				errs = append(errs, fmt.Errorf("orientation mismatch: no preferred orientation nodes found to display %s", imgData.Name))
 				continue
 			}
 
-			// Image is landscape
-			lnode := lnodes[0]
-			lnodes = lnodes[1:]
-
-			log.Printf("displaying image %s in landscape orientation on %s", imgData.Name, lnode.remoteAddr)
-
-			err := s.displayOverConn(imgData, lnode)
-			if err != nil {
-				errs = append(errs, err)
+			if len(*backup) == 0 {
+				// No more nodes to display images. We're done.
+				break
 			}
 
-			continue
+			displayOnNode = (*backup)[0]
+			*backup = (*backup)[1:]
+
+			log.Printf("displaying image %s in unpreferred orientation on %s", imgData.Name, displayOnNode.remoteAddr)
 		}
 
-		log.Printf("image %s is portrait orientation, looking for a match...", imgData.Name)
-
-		// Image is portrait
-		if len(pnodes) == 0 {
-			errs = append(errs, fmt.Errorf("orientation mismatch: no portrait nodes found to display %s", imgData.Name))
-			log.Printf("no matching portrait display for image %s", imgData.Name)
-			continue
-		}
-		pnode := pnodes[0]
-		pnodes = pnodes[1:]
-
-		log.Printf("displaying image %s in portrait orientation on %s", imgData.Name, pnode.remoteAddr)
-
-		err = s.displayOverConn(imgData, pnode)
+		err = s.displayOverConn(imgData, displayOnNode, showImgPayload.FitPolicy)
 		if err != nil {
 			errs = append(errs, err)
 		}
@@ -454,7 +456,33 @@ func (s *Server) handleShowImages(cmd *message.Command, c *connInfo) error {
 	return retErr
 }
 
-func filterOrientations(conns map[string]*connInfo) (l, p []*connInfo) {
+func connMatchesSelector(conn *connInfo, sel message.NodeSelector) bool {
+	switch sel.Key {
+	case message.MatchAnySelKey:
+		return true
+	case message.MatchNoneSelKey:
+		return false
+	case message.NameSelKey, message.NameEqualsSelKey:
+		return sel.Value == conn.nodeStatus.Identity.Name
+	case message.NameContainsSelKey:
+		return strings.Contains(conn.nodeStatus.Identity.Name, sel.Value)
+	case message.HasLabelSelKey:
+		return hasLabel(conn, sel.Value)
+	}
+
+	return false
+}
+
+func hasLabel(conn *connInfo, label string) bool {
+	for _, connLabel := range conn.nodeStatus.Identity.Labels {
+		if connLabel == label {
+			return true
+		}
+	}
+	return false
+}
+
+func filterOrientations(conns []*connInfo) (l, p []*connInfo) {
 	for _, c := range conns {
 		if c.nodeStatus == nil || c.nodeStatus.Identity.Display == nil || !c.nodeStatus.Identity.Display.DisplayResponding {
 			log.Printf("ignoring node %s, not ready", c.remoteAddr)
@@ -483,7 +511,7 @@ func isPortrait(identity message.Identity) bool {
 	return false
 }
 
-func (s *Server) displayOverConn(imgData message.ImageData, conn *connInfo) error {
+func (s *Server) displayOverConn(imgData message.ImageData, conn *connInfo, fitPolicy message.FitPolicy) error {
 	// connInfo should be already locked
 	t := conn.t
 
@@ -496,6 +524,7 @@ func (s *Server) displayOverConn(imgData message.ImageData, conn *connInfo) erro
 				Name:       imgData.Name,
 				Hash:       imgData.Hash,
 				Saturation: &sat,
+				FitPolicy:  fitPolicy,
 			},
 		},
 	}

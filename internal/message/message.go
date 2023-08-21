@@ -52,10 +52,11 @@ type NodeConfig struct {
 }
 
 type SetImagePayload struct {
-	Name        string   `json:"name"`
-	Hash        string   `json:"hash"`
-	Saturation  *float64 `json:"saturation,omitempty"`
-	RotationDeg int      `json:"rotationDeg,omitempty"`
+	Name        string    `json:"name"`
+	Hash        string    `json:"hash"`
+	Saturation  *float64  `json:"saturation,omitempty"`
+	RotationDeg int       `json:"rotationDeg,omitempty"`
+	FitPolicy   FitPolicy `json:"fitPolicy,omitempty"`
 }
 
 type GetImagePayload struct {
@@ -71,9 +72,43 @@ type RegisterPayload struct {
 }
 
 type ShowImagesPayload struct {
-	NodeName string      `json:"node,omitempty"`
-	Images   []ImageData `json:"images,omitempty"`
+	FitPolicy          FitPolicy      `json:"fitPolicy,omitempty"`
+	MustFitOrientation bool           `json:"mustFitOrientation"`
+	NodeSelectors      []NodeSelector `json:"nodeSelectors,omitempty"`
+	Images             []ImageData    `json:"images,omitempty"`
 }
+
+type NodeSelector struct {
+	Logic LogicExpr   `json:"logic"`
+	Key   SelectorKey `json:"key"`
+	// Test  SelectorTest `json:"test"`
+	Value string `json:"value"`
+}
+
+// type SelectorTest string
+
+// const (
+// 	EqualsTest   SelectorTest = "equals"
+// 	ContainsTest SelectorTest = "contains"
+// )
+
+type SelectorKey string
+
+const (
+	MatchAnySelKey     SelectorKey = "any"
+	MatchNoneSelKey    SelectorKey = "none"
+	NameSelKey         SelectorKey = "name"
+	NameEqualsSelKey   SelectorKey = "nameEquals"
+	NameContainsSelKey SelectorKey = "nameContains"
+	HasLabelSelKey     SelectorKey = "hasLabel"
+)
+
+type LogicExpr string
+
+const (
+	LogicAnd LogicExpr = "AND"
+	LogicOr  LogicExpr = "OR"
+)
 
 type ImageData struct {
 	Name   string `json:"name"`
@@ -81,6 +116,14 @@ type ImageData struct {
 	Hash   string `json:"hash"`
 	Data   []byte `json:"data,omitempty"`
 }
+
+type FitPolicy string
+
+const (
+	MustMatchOrientation = "mustMatchOrientation"
+	CropToFit            = "cropToFit"
+	PadToFit             = "padToFit"
+)
 
 type Response struct {
 	Command    *Command         `json:"command,omitempty"`
@@ -138,7 +181,7 @@ type NodeStatus struct {
 
 type Identity struct {
 	Name           string       `json:"name"`
-	Aliases        []string     `json:"aliases,omitempty"`
+	Labels         []string     `json:"labels,omitempty"`
 	Orientation    Orientation  `json:"orientation"`
 	Role           Role         `json:"role"`
 	Username       string       `json:"username"`

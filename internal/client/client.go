@@ -98,7 +98,7 @@ func ConfigSet(cfgs ...deploy.NodeDeploySettings) error {
 	return nil
 }
 
-func ShowImage(node string, imgPaths ...string) error {
+func ShowImage(node string, fit string, imgPaths ...string) error {
 	t, err := connect()
 	if err != nil {
 		return err
@@ -108,7 +108,7 @@ func ShowImage(node string, imgPaths ...string) error {
 		fmt.Println("closing websocket:", t.GracefullyClose())
 	}()
 
-	c, err := makeShowImageCmd(node, imgPaths...)
+	c, err := makeShowImageCmd(node, fit, imgPaths...)
 	if err != nil {
 		return err
 	}
@@ -165,8 +165,13 @@ func makeListFilesCmd() *message.Command {
 	}
 }
 
-func makeShowImageCmd(node string, imgPaths ...string) (*message.Command, error) {
+func makeShowImageCmd(node string, fit string, imgPaths ...string) (*message.Command, error) {
 	irefs, err := makeImageRefs(imgPaths...)
+	if err != nil {
+		return nil, err
+	}
+
+	fitMsg, err := fitStrToPolicy(fit)
 	if err != nil {
 		return nil, err
 	}
@@ -175,10 +180,22 @@ func makeShowImageCmd(node string, imgPaths ...string) (*message.Command, error)
 		Op: message.ShowImagesCmd,
 		Payload: &message.CommandPayload{
 			ShowImagesPayload: &message.ShowImagesPayload{
-				Images: irefs,
+				Images:    irefs,
+				FitPolicy: fitMsg,
 			},
 		},
 	}, nil
+}
+
+func fitStrToPolicy(s string) (message.FitPolicy, error) {
+	switch s {
+	case "crop", message.CropToFit:
+		return message.CropToFit, nil
+	case "pad", message.PadToFit:
+		return message.PadToFit, nil
+	default:
+		return "", fmt.Errorf("unrecognized fit type: %s", s)
+	}
 }
 
 func makeImageRefs(imgPaths ...string) ([]message.ImageData, error) {

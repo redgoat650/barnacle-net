@@ -305,7 +305,7 @@ func (b *Barnacle) handleSetImage(p *message.CommandPayload) (*message.ResponseP
 	orient := viper.GetString(config.NodeOrientationConfigKey)
 	rot := orientationToRotation(message.Orientation(orient))
 
-	err = b.imagePYRunner.RunImagePY(filePath, rot, imgData.Saturation)
+	err = b.imagePYRunner.RunImagePY(filePath, rot, imgData.Saturation, imgData.FitPolicy)
 	if err != nil {
 		return nil, fmt.Errorf("running image setting script: %s", err)
 	}
@@ -405,12 +405,12 @@ func (b *Barnacle) getIdentity() (*message.Identity, error) {
 
 	name := viper.GetString(config.NodeNameConfigKey)
 	orient := viper.GetString(config.NodeOrientationConfigKey)
-	aliases := viper.GetStringSlice(config.NodeLabelsConfigKey)
+	labels := viper.GetStringSlice(config.NodeLabelsConfigKey)
 
 	return &message.Identity{
 		Name:           name,
 		Orientation:    message.Orientation(orient),
-		Aliases:        aliases,
+		Labels:         labels,
 		Role:           message.NodeRole,
 		Username:       user.Name,
 		Hostname:       host,

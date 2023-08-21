@@ -50,7 +50,12 @@ the image will be displayed on a random node.`,
 			return err
 		}
 
-		err = client.ShowImage(node, args...)
+		fit, err := cmd.Flags().GetString("fit")
+		if err != nil {
+			return err
+		}
+
+		err = client.ShowImage(node, fit, args...)
 		if err != nil {
 			log.Println("show image returned error:", err)
 		}
@@ -63,4 +68,5 @@ func init() {
 	barnacleCmd.AddCommand(barnacleShowCmd)
 
 	barnacleShowCmd.Flags().StringP("node", "n", "", "Identifier of the specific node to display on.")
+	barnacleShowCmd.Flags().StringP("fit", "f", "crop", "Crop or Pad images to fit [crop, pad].")
 }
