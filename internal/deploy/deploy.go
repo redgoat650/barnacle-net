@@ -77,9 +77,10 @@ func DeployServer(image string) error {
 	}
 
 	opts := RunOpts{
-		Name:     serverContainerName,
-		Detached: true,
-		Port:     []string{"8080:8080"},
+		Name:          serverContainerName,
+		Detached:      true,
+		Port:          []string{"8080:8080"},
+		RestartPolicy: unlessStoppedRestartPolicy,
 	}
 
 	servCmd := []string{"server", "start"}
@@ -136,11 +137,12 @@ func DeployImageToNode(node NodeDeploySettings, image, server string) error {
 	}
 
 	opts := RunOpts{
-		Name:       "barnacle",
-		Detached:   true,
-		Devices:    []string{"/dev/gpiomem"},
-		Privileged: true,
-		Volumes:    []string{"/sys:/sys"},
+		Name:          "barnacle",
+		Detached:      true,
+		RestartPolicy: unlessStoppedRestartPolicy,
+		Devices:       []string{"/dev/gpiomem"},
+		Privileged:    true,
+		Volumes:       []string{"/sys:/sys"},
 	}
 
 	err = dockerRun(image, node.Addr, opts, barnacleStartCmd...)
@@ -235,20 +237,23 @@ const (
 	portArg        = "--publish"
 	privilegedArg  = "--privileged"
 	removeArg      = "--rm"
+	restartArg     = "--restart"
 	volumeMountArg = "--volume"
 
 	// Static values
-	jsonFormatArg = "json"
+	jsonFormatArg              = "json"
+	unlessStoppedRestartPolicy = "unless-stopped"
 )
 
 type RunOpts struct {
-	Name       string
-	Detached   bool
-	Devices    []string
-	Port       []string
-	Privileged bool
-	Remove     bool
-	Volumes    []string
+	Name          string
+	Detached      bool
+	Devices       []string
+	Port          []string
+	Privileged    bool
+	Remove        bool
+	RestartPolicy string
+	Volumes       []string
 }
 
 func argsFromOpts(o RunOpts) (ret []string) {
@@ -270,6 +275,10 @@ func argsFromOpts(o RunOpts) (ret []string) {
 
 	if o.Privileged {
 		ret = append(ret, privilegedArg)
+	}
+
+	if o.RestartPolicy != "" {
+		ret = append(ret, restartArg, o.RestartPolicy)
 	}
 
 	if o.Remove {
