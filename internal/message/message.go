@@ -31,6 +31,13 @@ const (
 	RegisterCmd   Op = "register"
 	ShowImagesCmd Op = "showImages"
 	ListFilesCmd  Op = "listFiles"
+
+	AddWalletCmd               Op = "addWallet"
+	GetWalletsCmd              Op = "getWallets"
+	RemoveWalletCmd            Op = "removeWallet"
+	AddBlockchainAPIProfile    Op = "addBlockchainAPIProfile"
+	GetBlockchainAPIProfiles   Op = "getBlockchainAPIProfiles"
+	RemoveBlockchainAPIProfile Op = "removeBlockchainAPIProfile"
 )
 
 type CommandPayload struct {
@@ -40,6 +47,11 @@ type CommandPayload struct {
 	ListNodesPayload  *ListNodesPayload  `json:"listNodesPayload,omitempty"`
 	RegisterPayload   *RegisterPayload   `json:"registerPayload,omitempty"`
 	ShowImagesPayload *ShowImagesPayload `json:"showImagesPayload,omitempty"`
+
+	AddWalletPayload                  *AddWalletPayload                  `json:"addWalletPayload,omitempty"`
+	RemoveWalletPayload               *RemoveWalletPayload               `json:"removeWalletPayload,omitempty"`
+	AddBlockchainAPIProfilePayload    *AddBlockchainAPIProfilePayload    `json:"addBlockchainAPIProfilePayload,omitempty"`
+	RemoveBlockchainAPIProfilePayload *RemoveBlockchainAPIProfilePayload `json:"removeBlockchainAPIProfilePayload,omitempty"`
 }
 
 type ConfigSetPayload struct {
@@ -71,6 +83,26 @@ type RegisterPayload struct {
 	Identity Identity `json:"identity,omitempty"`
 }
 
+type AddWalletPayload struct {
+	WalletID    string `json:"walletID,omitempty"`
+	Description string `json:"description,omitempty"`
+	UseProfile  string `json:"useProfile,omitempty"`
+}
+
+type RemoveWalletPayload struct {
+	WalletID string `json:"walletID,omitempty"`
+}
+
+type AddBlockchainAPIProfilePayload struct {
+	Name   string `json:"name,omitempty"`
+	Chain  string `json:"chain,omitempty"`
+	APIKey []byte `json:"apiKey,omitempty"`
+}
+
+type RemoveBlockchainAPIProfilePayload struct {
+	Name string `json:"name,omitempty"`
+}
+
 type ShowImagesPayload struct {
 	FitPolicy          FitPolicy      `json:"fitPolicy,omitempty"`
 	MustFitOrientation bool           `json:"mustFitOrientation"`
@@ -81,16 +113,8 @@ type ShowImagesPayload struct {
 type NodeSelector struct {
 	Logic LogicExpr   `json:"logic"`
 	Key   SelectorKey `json:"key"`
-	// Test  SelectorTest `json:"test"`
-	Value string `json:"value"`
+	Value string      `json:"value"`
 }
-
-// type SelectorTest string
-
-// const (
-// 	EqualsTest   SelectorTest = "equals"
-// 	ContainsTest SelectorTest = "contains"
-// )
 
 type SelectorKey string
 
@@ -139,12 +163,34 @@ type ResponsePayload struct {
 	IdentifyResponse  *IdentifyResponsePayload  `json:"identifyResponse,omitempty"`
 	ListNodesResponse *ListNodesResponsePayload `json:"listNodesResponse,omitempty"`
 	ListFilesResponse *ListFilesResponsePayload `json:"listFilesResponse,omitempty"`
+
+	GetWalletsResponse               *GetWalletsResponse               `json:"getWalletsResponse,omitempty"`
+	GetBlockchainAPIProfilesResponse *GetBlockchainAPIProfilesResponse `json:"getBlockchainAPIProfilesResponse,omitempty"`
 }
 
 type GetImageResponsePayload struct {
 	Name      string `json:"name"`
 	ImageData []byte `json:"imgData,omitempty"`
 	Hash      string `json:"hash"`
+}
+
+type GetWalletsResponse struct {
+	Items []WalletInfo
+}
+
+type WalletInfo struct {
+	ID           string `json:"walletID,omitempty"`
+	Description  string `json:"description,omitempty"`
+	UsingProfile string `json:"usingProfile,omitempty"`
+}
+
+type GetBlockchainAPIProfilesResponse struct {
+	Items []BCProfile
+}
+type BCProfile struct {
+	Name   string
+	Chain  string
+	APIKey []byte
 }
 
 type IdentifyResponsePayload struct {

@@ -25,6 +25,9 @@ const (
 	DeployServerPortConfigKey = "deploy.server.port" // Deploy server - Set to the port to serve the server over
 
 	DefaultDeployImage = "redgoat650/barnacle-net:scratch"
+
+	ServerBlockchainProfiles = "server.blockchain.profiles"
+	ServerBlockchainWallets  = "server.blockchain.wallets"
 )
 
 func init() {

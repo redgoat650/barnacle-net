@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/redgoat650/barnacle-net/internal/blockchain"
 	"github.com/redgoat650/barnacle-net/internal/config"
 	"github.com/redgoat650/barnacle-net/internal/hash"
 	"github.com/redgoat650/barnacle-net/internal/message"
@@ -31,11 +32,12 @@ const (
 )
 
 type Server struct {
-	conns  map[string]*connInfo
-	connMu *sync.RWMutex
-	ctx    context.Context
-	cancel context.CancelFunc
-	imgDir string
+	conns    map[string]*connInfo
+	connMu   *sync.RWMutex
+	ctx      context.Context
+	cancel   context.CancelFunc
+	imgDir   string
+	configMu *sync.RWMutex
 }
 
 type connInfo struct {
@@ -54,6 +56,8 @@ func RunServer(v *viper.Viper) error {
 
 	log.Println("Serving at", addr)
 
+	s.monitorWallets()
+
 	return http.ListenAndServe(addr, nil)
 }
 
@@ -68,11 +72,12 @@ func NewServer() *Server {
 	}
 
 	return &Server{
-		conns:  make(map[string]*connInfo),
-		connMu: new(sync.RWMutex),
-		ctx:    ctx,
-		cancel: cancel,
-		imgDir: imageDir,
+		conns:    make(map[string]*connInfo),
+		connMu:   new(sync.RWMutex),
+		ctx:      ctx,
+		cancel:   cancel,
+		imgDir:   imageDir,
+		configMu: new(sync.RWMutex),
 	}
 }
 
@@ -161,12 +166,263 @@ func (s *Server) handleIncomingCommand(cmd *message.Command, c *connInfo) error 
 		rp, err = s.handleListFiles(cmd)
 	case message.ConfigSetCmd:
 		err = s.handleConfigSet(cmd)
+	case message.AddWalletCmd:
+		err = s.handleAddWallet(cmd)
+	case message.GetWalletsCmd:
+		rp, err = s.handleGetWallets(cmd)
+	case message.RemoveWalletCmd:
+		err = s.handleRemoveWallet(cmd)
+	case message.AddBlockchainAPIProfile:
+		err = s.handleAddBlockchainAPIProfile(cmd)
+	case message.GetBlockchainAPIProfiles:
+		rp, err = s.handleGetBlockchainAPIProfiles(cmd)
+	case message.RemoveBlockchainAPIProfile:
+		err = s.handleRemoveBlockchainAPIProfile(cmd)
 	default:
 		err = fmt.Errorf("unrecognized command: %s", cmd.Op)
 	}
 
 	log.Println("handling command", cmd.Op, err)
 	return c.t.SendResponse(rp, err, cmd)
+}
+
+func (s *Server) monitorWallets() {
+	for {
+		s.processWallets()
+
+		time.Sleep(1 * time.Minute)
+	}
+}
+
+func (s *Server) processWallets() {
+	s.configMu.RLock()
+	defer s.configMu.RUnlock()
+
+	wallets := map[string]WalletInfo{}
+
+	viper.UnmarshalKey(config.ServerBlockchainWallets, &wallets)
+
+	for _, wallet := range wallets {
+		err := s.pinWallet(wallet)
+		if err != nil {
+			log.Println("error pinning wallet", err)
+		}
+	}
+}
+
+func (s *Server) pinWallet(wallet WalletInfo) error {
+	prof, ok := s.getBlockchainAPIProfile(wallet)
+	if !ok {
+		return fmt.Errorf("could not find requested profile %s for wallet %s", wallet.UseProfile, wallet.WalletID)
+	}
+
+	nftMeta, err := blockchain.GetNFTMetadata(wallet.WalletID, prof)
+	if err != nil {
+		return fmt.Errorf("error getting nft metadata from wallet %s using profile %s", wallet.WalletID, prof.Name)
+	}
+
+	s.connMu.RLock()
+	defer s.connMu.RUnlock()
+
+	for _, conn := range s.conns {
+
+	}
+}
+
+func (s *Server) getBlockchainAPIProfile(wallet WalletInfo) (blockchain.Profile, bool) {
+	s.configMu.RLock()
+	defer s.configMu.RUnlock()
+
+	bcProfiles := map[string]blockchain.Profile{}
+
+	viper.UnmarshalKey(config.ServerBlockchainProfiles, &bcProfiles)
+
+	prof, ok := bcProfiles[wallet.UseProfile]
+	return prof, ok
+}
+
+func (s *Server) handleAddWallet(cmd *message.Command) error {
+	p := cmd.Payload
+
+	if p == nil || p.AddWalletPayload == nil {
+		return errors.New("invalid add wallet payload")
+	}
+
+	payload := p.AddWalletPayload
+
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
+
+	wallets := map[string]WalletInfo{}
+
+	viper.UnmarshalKey(config.ServerBlockchainWallets, &wallets)
+
+	wallet := WalletInfo{
+		WalletID:    payload.WalletID,
+		Description: payload.Description,
+		UseProfile:  payload.UseProfile,
+	}
+
+	wallets[wallet.WalletID] = wallet
+
+	viper.Set(config.ServerBlockchainProfiles, wallets)
+
+	err := viper.WriteConfig()
+	if err != nil {
+		return fmt.Errorf("error writing new wallet to config: %s", err)
+	}
+
+	return nil
+}
+
+func (s *Server) handleGetWallets(cmd *message.Command) (*message.ResponsePayload, error) {
+	s.configMu.RLock()
+	defer s.configMu.RUnlock()
+
+	wallets := map[string]WalletInfo{}
+
+	viper.UnmarshalKey(config.ServerBlockchainWallets, &wallets)
+
+	var retWallets []message.WalletInfo
+
+	for _, prof := range wallets {
+		retWallets = append(retWallets, message.WalletInfo{
+			Description:  prof.Description,
+			ID:           prof.WalletID,
+			UsingProfile: prof.UseProfile,
+		})
+	}
+
+	return &message.ResponsePayload{
+		GetWalletsResponse: &message.GetWalletsResponse{
+			Items: retWallets,
+		},
+	}, nil
+}
+
+type WalletInfo struct {
+	WalletID    string
+	Description string
+	UseProfile  string
+}
+
+func (s *Server) handleRemoveWallet(cmd *message.Command) error {
+	p := cmd.Payload
+
+	if p == nil || p.RemoveWalletPayload == nil {
+		return errors.New("invalid remove wallet payload")
+	}
+
+	payload := p.RemoveWalletPayload
+
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
+
+	wallets := map[string]WalletInfo{}
+
+	viper.UnmarshalKey(config.ServerBlockchainWallets, &wallets)
+
+	if _, ok := wallets[payload.WalletID]; !ok {
+		return fmt.Errorf("profile not found: %s", payload.WalletID)
+	}
+
+	delete(wallets, payload.WalletID)
+
+	err := viper.WriteConfig()
+	if err != nil {
+		return fmt.Errorf("error writing config after removing blockchain profile %s: %s", payload.WalletID, err)
+	}
+
+	return nil
+}
+
+func (s *Server) handleAddBlockchainAPIProfile(cmd *message.Command) error {
+	p := cmd.Payload
+
+	if p == nil || p.AddBlockchainAPIProfilePayload == nil {
+		return errors.New("invalid add blockchain api profile payload")
+	}
+
+	addBCAPIProfilePayload := p.AddBlockchainAPIProfilePayload
+
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
+
+	bcProfiles := map[string]blockchain.Profile{}
+
+	viper.UnmarshalKey(config.ServerBlockchainProfiles, &bcProfiles)
+
+	prof := blockchain.Profile{
+		Name:   addBCAPIProfilePayload.Name,
+		Chain:  addBCAPIProfilePayload.Chain,
+		APIKey: addBCAPIProfilePayload.APIKey,
+	}
+
+	bcProfiles[prof.Name] = prof
+
+	viper.Set(config.ServerBlockchainProfiles, bcProfiles)
+
+	err := viper.WriteConfig()
+	if err != nil {
+		return fmt.Errorf("error writing new blockchain profile to config: %s", err)
+	}
+
+	return nil
+}
+
+func (s *Server) handleGetBlockchainAPIProfiles(cmd *message.Command) (*message.ResponsePayload, error) {
+	s.configMu.RLock()
+	defer s.configMu.RUnlock()
+
+	bcProfiles := map[string]blockchain.Profile{}
+
+	viper.UnmarshalKey(config.ServerBlockchainProfiles, &bcProfiles)
+
+	var retProfs []message.BCProfile
+
+	for _, prof := range bcProfiles {
+		retProfs = append(retProfs, message.BCProfile{
+			Name:   prof.Name,
+			Chain:  prof.Chain,
+			APIKey: prof.APIKey,
+		})
+	}
+
+	return &message.ResponsePayload{
+		GetBlockchainAPIProfilesResponse: &message.GetBlockchainAPIProfilesResponse{
+			Items: retProfs,
+		},
+	}, nil
+}
+
+func (s *Server) handleRemoveBlockchainAPIProfile(cmd *message.Command) error {
+	p := cmd.Payload
+
+	if p == nil || p.RemoveBlockchainAPIProfilePayload == nil {
+		return errors.New("invalid remove blockchain api profile payload")
+	}
+
+	removePayload := p.RemoveBlockchainAPIProfilePayload
+
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
+
+	bcProfiles := map[string]blockchain.Profile{}
+
+	viper.UnmarshalKey(config.ServerBlockchainProfiles, &bcProfiles)
+
+	if _, ok := bcProfiles[removePayload.Name]; !ok {
+		return fmt.Errorf("profile not found: %s", removePayload.Name)
+	}
+
+	delete(bcProfiles, removePayload.Name)
+
+	err := viper.WriteConfig()
+	if err != nil {
+		return fmt.Errorf("error writing config after removing blockchain profile %s: %s", removePayload.Name, err)
+	}
+
+	return nil
 }
 
 func (s *Server) handleConfigSet(cmd *message.Command) error {
