@@ -1,16 +1,12 @@
 package deploy
 
 import (
-	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
-	"os/exec"
 	"strings"
 
-	"github.com/docker/cli/cli/command/formatter"
-	"github.com/docker/docker/api/types"
 	"github.com/redgoat650/barnacle-net/internal/config"
+	"github.com/redgoat650/barnacle-net/internal/dockerutil"
 	"github.com/redgoat650/barnacle-net/internal/message"
 	"github.com/spf13/viper"
 )
@@ -76,16 +72,16 @@ func DeployServer(image string) error {
 		return err
 	}
 
-	opts := RunOpts{
+	opts := dockerutil.RunOpts{
 		Name:          serverContainerName,
 		Detached:      true,
 		Port:          []string{"8080:8080"},
-		RestartPolicy: unlessStoppedRestartPolicy,
+		RestartPolicy: dockerutil.UnlessStoppedRestartPolicy,
 	}
 
 	servCmd := []string{"server", "start"}
 
-	err = dockerRun(image, "", opts, servCmd...)
+	err = dockerutil.DockerRun(image, "", opts, servCmd...)
 	if err != nil {
 		return err
 	}
@@ -136,16 +132,16 @@ func DeployImageToNode(node NodeDeploySettings, image, server string) error {
 		barnacleStartCmd = append(barnacleStartCmd, "--labels", fmt.Sprintf("%q", strings.Join(node.Config.Labels, ",")))
 	}
 
-	opts := RunOpts{
+	opts := dockerutil.RunOpts{
 		Name:          "barnacle",
 		Detached:      true,
-		RestartPolicy: unlessStoppedRestartPolicy,
+		RestartPolicy: dockerutil.UnlessStoppedRestartPolicy,
 		Devices:       []string{"/dev/gpiomem"},
 		Privileged:    true,
 		Volumes:       []string{"/sys:/sys"},
 	}
 
-	err = dockerRun(image, node.Addr, opts, barnacleStartCmd...)
+	err = dockerutil.DockerRun(image, node.Addr, opts, barnacleStartCmd...)
 	if err != nil {
 		return err
 	}
@@ -159,7 +155,7 @@ func cleanupExistingImage(image, nodeAddr string) error {
 		nodeStr = " from node %s"
 	}
 
-	list, err := dockerContainerList(nodeAddr)
+	list, err := dockerutil.DockerContainerList(nodeAddr)
 	if err != nil {
 		return err
 	}
@@ -173,19 +169,19 @@ func cleanupExistingImage(image, nodeAddr string) error {
 				return fmt.Errorf("no ID for container with image %s", cntr["Image"])
 			}
 
-			err := dockerContainerStop(id, nodeAddr)
+			err := dockerutil.DockerContainerStop(id, nodeAddr)
 			if err != nil {
 				return fmt.Errorf("stopping container %s%s: %s", id, nodeStr, err)
 			}
 
-			err = dockerContainerRemove(id, nodeAddr)
+			err = dockerutil.DockerContainerRemove(id, nodeAddr)
 			if err != nil {
 				return fmt.Errorf("removing container %s%s: %s", id, nodeStr, err)
 			}
 		}
 	}
 
-	imgs, err := dockerImageList(nodeAddr)
+	imgs, err := dockerutil.DockerImageList(nodeAddr)
 	if err != nil {
 		return err
 	}
@@ -196,275 +192,12 @@ func cleanupExistingImage(image, nodeAddr string) error {
 		if fmt.Sprintf("%s:%s", img["Repository"], img["Tag"]) == image {
 			id := img["ID"]
 
-			err := dockerImageRemove(id, nodeAddr)
+			err := dockerutil.DockerImageRemove(id, nodeAddr)
 			if err != nil {
 				return fmt.Errorf("removing image %s%s: %s", id, nodeStr, err)
 			}
 		}
 	}
 
-	// list, err = dockerContainerList(node)
-	// if err != nil {
-	// 	return err
-	// }
-
-	// fmt.Println(list)
-
 	return nil
-}
-
-const (
-	// Command
-	dockerCmd = "docker"
-
-	// Subcommands
-	containerSubCmd = "container"
-	contextSubCmd   = "context"
-	imageSubCmd     = "image"
-	inspectSubCmd   = "inspect"
-	listSubCmd      = "ls"
-	runSubCmd       = "run"
-	stopSubCmd      = "stop"
-	rmSubCmd        = "remove"
-
-	// Args
-	allArg         = "--all"
-	detachedArg    = "--detach"
-	deviceArg      = "--device"
-	formatArg      = "--format"
-	hostArg        = "--host"
-	nameArg        = "--name"
-	portArg        = "--publish"
-	privilegedArg  = "--privileged"
-	removeArg      = "--rm"
-	restartArg     = "--restart"
-	volumeMountArg = "--volume"
-
-	// Static values
-	jsonFormatArg              = "json"
-	unlessStoppedRestartPolicy = "unless-stopped"
-)
-
-type RunOpts struct {
-	Name          string
-	Detached      bool
-	Devices       []string
-	Port          []string
-	Privileged    bool
-	Remove        bool
-	RestartPolicy string
-	Volumes       []string
-}
-
-func argsFromOpts(o RunOpts) (ret []string) {
-	if o.Name != "" {
-		ret = append(ret, nameArg, o.Name)
-	}
-
-	if o.Detached {
-		ret = append(ret, detachedArg)
-	}
-
-	for _, dev := range o.Devices {
-		ret = append(ret, deviceArg, dev)
-	}
-
-	for _, ps := range o.Port {
-		ret = append(ret, portArg, ps)
-	}
-
-	if o.Privileged {
-		ret = append(ret, privilegedArg)
-	}
-
-	if o.RestartPolicy != "" {
-		ret = append(ret, restartArg, o.RestartPolicy)
-	}
-
-	if o.Remove {
-		ret = append(ret, removeArg)
-	}
-
-	for _, vs := range o.Volumes {
-		ret = append(ret, volumeMountArg, vs)
-	}
-
-	return ret
-}
-
-func dockerRun(image, addr string, opts RunOpts, cmd ...string) error {
-	// docker run <image> cmd...
-	args := hostArgs(addr)
-
-	args = append(args, runSubCmd)
-
-	args = append(args, argsFromOpts(opts)...)
-
-	args = append(args, image)
-
-	args = append(args, cmd...)
-
-	out, err := runDockerCmd(args...)
-
-	fmt.Println("STDOUT:", out)
-
-	return err
-}
-
-func dockerContainerStop(id, addr string) error {
-	// docker --host=<node> container stop <id>
-	args := hostArgs(addr)
-
-	args = append(args, containerSubCmd, stopSubCmd, id)
-
-	out, err := runDockerCmd(args...)
-
-	fmt.Println("STDOUT:", out)
-
-	return err
-}
-
-func dockerContainerRemove(id, addr string) error {
-	return dockerResourceRemove(id, containerSubCmd, addr)
-}
-
-func dockerImageRemove(id, addr string) error {
-	return dockerResourceRemove(id, imageSubCmd, addr)
-}
-
-func dockerResourceRemove(id, resource, addr string) error {
-	// docker --host=<node> <resource> remove <id>
-	args := hostArgs(addr)
-
-	args = append(args, resource, rmSubCmd, id)
-
-	out, err := runDockerCmd(args...)
-
-	fmt.Println("STDOUT:", out)
-
-	return err
-}
-
-func dockerContainerInspect(id, addr string) ([]types.ContainerJSON, error) {
-	// docker container inspect <id> --format json
-	args := hostArgs(addr)
-
-	args = append(args, containerSubCmd, inspectSubCmd, id)
-	args = append(args, formatArgs()...)
-
-	out, err := runDockerCmd(args...)
-	if err != nil {
-		return nil, err
-	}
-
-	fmt.Println("CONTAINER INSPECT:", out)
-
-	c := []types.ContainerJSON{}
-
-	err = json.Unmarshal([]byte(out), &c)
-	if err != nil {
-		return nil, err
-	}
-
-	fmt.Println("UNMARSHALLED", c)
-
-	return c, nil
-}
-
-func dockerContainerList(addr string) (ret []formatter.SubHeaderContext, err error) {
-	// docker --host <node> container ls --format json
-	args := hostArgs(addr)
-
-	args = append(args, containerSubCmd, listSubCmd, allArg)
-	args = append(args, formatArgs()...)
-
-	out, err := runDockerCmd(args...)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, s := range strings.Split(strings.TrimSpace(out), "\n") {
-		if len(s) == 0 {
-			continue
-		}
-
-		cntr := &formatter.SubHeaderContext{}
-
-		err = json.Unmarshal([]byte(s), &cntr)
-		if err != nil {
-			return nil, err
-		}
-
-		ret = append(ret, *cntr)
-	}
-
-	return ret, nil
-}
-
-func dockerImageList(addr string) (ret []formatter.SubHeaderContext, err error) {
-	// docker --host <node> image ls --format json
-	args := hostArgs(addr)
-
-	args = append(args, imageSubCmd, listSubCmd)
-	args = append(args, formatArgs()...)
-
-	out, err := runDockerCmd(args...)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, s := range strings.Split(strings.TrimSpace(out), "\n") {
-		if len(s) == 0 {
-			continue
-		}
-
-		imgsum := &formatter.SubHeaderContext{}
-
-		err = json.Unmarshal([]byte(s), &imgsum)
-		if err != nil {
-			return nil, err
-		}
-
-		ret = append(ret, *imgsum)
-	}
-
-	return ret, nil
-}
-
-func formatArgs() []string {
-	return []string{
-		formatArg,
-		jsonFormatArg,
-	}
-}
-
-func hostArgs(addr string) []string {
-	if addr == "" {
-		return nil
-	}
-
-	return []string{
-		hostArg,
-		addr,
-	}
-}
-
-func runDockerCmd(cmdArgs ...string) (out string, err error) {
-	if len(cmdArgs) > 0 && cmdArgs[0] == dockerCmd {
-		cmdArgs = cmdArgs[1:]
-	}
-
-	log.Println("running command:", dockerCmd, strings.Join(cmdArgs, " "))
-
-	cmd := exec.Command(dockerCmd, cmdArgs...)
-
-	b, err := cmd.Output()
-	if err != nil {
-		exitErr := &exec.ExitError{}
-		if errors.As(err, &exitErr) {
-			log.Println("STDERR:", string(exitErr.Stderr))
-		}
-	}
-
-	return string(b), err
 }
