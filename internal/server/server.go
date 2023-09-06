@@ -28,6 +28,7 @@ import (
 
 const (
 	defaultTimeout = 10 * time.Second
+	pinAddTimeout  = 60 * time.Second
 	imgCacheDir    = "barnacle-images"
 )
 
@@ -238,11 +239,11 @@ func (s *Server) pinWallet(wallet WalletInfo) error {
 	s.connMu.RLock()
 	defer s.connMu.RUnlock()
 
-	ctx, cancel := context.WithTimeout(s.ctx, defaultTimeout)
-	defer cancel()
-
 	var errs []error
 	for _, conn := range s.conns {
+		ctx, cancel := context.WithTimeout(s.ctx, pinAddTimeout)
+		defer cancel()
+
 		err := sendPinAddCommand(ctx, contentIDs, conn)
 		if err != nil {
 			err = fmt.Errorf("unable to pin set over conn %s: %s", conn.remoteAddr, err)
