@@ -33,8 +33,12 @@ func (d NFTData) GetURI() string {
 	return d.Metadata.URI
 }
 
-func (d NFTData) GetImageURI() string {
+func (d NFTData) GetImageURL() string {
 	return d.Metadata.Base.Image
+}
+
+func (d NFTData) GetAnimationURL() string {
+	return d.Metadata.Extra.AnimationURL
 }
 
 func (d NFTData) GetCollectionName() string {
@@ -46,8 +50,9 @@ func (d NFTData) GetCollectionDescription() string {
 }
 
 type Metadata struct {
-	URI  string `json:"uri,omitempty"`
-	Base Base   `json:"base,omitempty"`
+	URI   string `json:"uri,omitempty"`
+	Base  Base   `json:"base,omitempty"`
+	Extra Extra  `json:"extra,omitempty"`
 }
 
 type Base struct {
@@ -65,6 +70,10 @@ type CollectionInfo struct {
 	NFTType     string `json:"nftType,omitempty"`
 }
 
+type Extra struct {
+	AnimationURL string `json:"animationURL,omitempty"`
+}
+
 const (
 	loopringAPIBaseURL = "https://api3.loopring.io"
 	loopringAPIV3      = "api/v3"
@@ -78,10 +87,11 @@ const (
 	offsetParamKey   = "offset"
 
 	apiKeyHeaderKey = "X-API-KEY"
+	maxRecordLimit  = 50
 )
 
 func GetNFTMetadata(walletID string, apiKey []byte) ([]nft.MetadataGetter, error) {
-	pl, err := getBatchNFTMetadata(walletID, apiKey, 0, 0)
+	pl, err := getBatchNFTMetadata(walletID, apiKey, maxRecordLimit, 0)
 	if err != nil {
 		return nil, err
 	}

@@ -18,6 +18,7 @@ import (
 
 	"github.com/redgoat650/barnacle-net/internal/config"
 	"github.com/redgoat650/barnacle-net/internal/hash"
+	"github.com/redgoat650/barnacle-net/internal/ipfs"
 	"github.com/redgoat650/barnacle-net/internal/message"
 	"github.com/redgoat650/barnacle-net/internal/python"
 	"github.com/redgoat650/barnacle-net/internal/transport"
@@ -180,6 +181,8 @@ func (b *Barnacle) handleIncomingCommand(cmd *message.Command) error {
 		rp, err = b.handleListFiles()
 	case message.ConfigSetCmd:
 		err = b.handleConfigSet(cmd.Payload)
+	case message.PinAddCmd:
+		err = b.handlePinAdd(cmd.Payload)
 	default:
 		err = fmt.Errorf("unrecognized command: %s", cmd.Op)
 	}
@@ -189,6 +192,22 @@ func (b *Barnacle) handleIncomingCommand(cmd *message.Command) error {
 	}
 
 	return b.t.SendResponse(rp, err, cmd)
+}
+
+func (b *Barnacle) handlePinAdd(p *message.CommandPayload) error {
+	if p == nil || p.PinSetPayload == nil {
+		return errors.New("invalid command payload")
+	}
+
+	if err := ipfs.LaunchSingletonKubo(); err != nil {
+		return fmt.Errorf("launching singleton kubo in docker: %s", err)
+	}
+
+	if err := ipfs.PinAdd(p.PinSetPayload.CIDs); err != nil {
+		return fmt.Errorf("error executing pin add: %s", err)
+	}
+
+	return nil
 }
 
 func (b *Barnacle) handleConfigSet(p *message.CommandPayload) error {

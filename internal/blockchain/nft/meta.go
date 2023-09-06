@@ -2,7 +2,8 @@ package nft
 
 type MetadataGetter interface {
 	GetName() string
-	GetImageURI() string
+	GetImageURL() string
+	GetAnimationURL() string
 	GetURI() string
 	GetCollectionName() string
 	GetCollectionDescription() string

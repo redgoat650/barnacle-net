@@ -172,11 +172,11 @@ func (s *Server) handleIncomingCommand(cmd *message.Command, c *connInfo) error 
 		rp, err = s.handleGetWallets(cmd)
 	case message.RemoveWalletCmd:
 		err = s.handleRemoveWallet(cmd)
-	case message.AddBlockchainAPIProfile:
+	case message.AddBlockchainAPIProfileCmd:
 		err = s.handleAddBlockchainAPIProfile(cmd)
-	case message.GetBlockchainAPIProfiles:
+	case message.GetBlockchainAPIProfilesCmd:
 		rp, err = s.handleGetBlockchainAPIProfiles(cmd)
-	case message.RemoveBlockchainAPIProfile:
+	case message.RemoveBlockchainAPIProfileCmd:
 		err = s.handleRemoveBlockchainAPIProfile(cmd)
 	default:
 		err = fmt.Errorf("unrecognized command: %s", cmd.Op)
@@ -216,17 +216,63 @@ func (s *Server) pinWallet(wallet WalletInfo) error {
 		return fmt.Errorf("could not find requested profile %s for wallet %s", wallet.UseProfile, wallet.WalletID)
 	}
 
-	nftMeta, err := blockchain.GetNFTMetadata(wallet.WalletID, prof)
+	nftMetaList, err := blockchain.GetNFTMetadata(wallet.WalletID, prof)
 	if err != nil {
 		return fmt.Errorf("error getting nft metadata from wallet %s using profile %s", wallet.WalletID, prof.Name)
+	}
+
+	contentIDsMap := make(map[string]struct{})
+	for _, nftMeta := range nftMetaList {
+		contentIDsMap[nftMeta.GetURI()] = struct{}{}
+		contentIDsMap[nftMeta.GetImageURL()] = struct{}{}
+		contentIDsMap[nftMeta.GetAnimationURL()] = struct{}{}
+	}
+
+	var contentIDs []string
+
+	for cidPath := range contentIDsMap {
+		cid := strings.TrimPrefix(cidPath, "ipfs://")
+		contentIDs = append(contentIDs, cid)
 	}
 
 	s.connMu.RLock()
 	defer s.connMu.RUnlock()
 
-	for _, conn := range s.conns {
+	ctx, cancel := context.WithTimeout(s.ctx, defaultTimeout)
+	defer cancel()
 
+	var errs []error
+	for _, conn := range s.conns {
+		err := sendPinAddCommand(ctx, contentIDs, conn)
+		if err != nil {
+			err = fmt.Errorf("unable to pin set over conn %s: %s", conn.remoteAddr, err)
+			errs = append(errs, err)
+		}
 	}
+
+	return formatErrList(errs)
+}
+
+func sendPinAddCommand(ctx context.Context, contentIDs []string, conn *connInfo) error {
+	cmd := &message.Command{
+		Op: message.PinAddCmd,
+		Payload: &message.CommandPayload{
+			PinSetPayload: &message.PinSetPayload{
+				CIDs: contentIDs,
+			},
+		},
+	}
+
+	resp, err := conn.t.SendCommandWaitResponse(ctx, cmd)
+	if err != nil {
+		return fmt.Errorf("sending pin add command to node: %s", err)
+	}
+
+	if !resp.Success {
+		return fmt.Errorf("failed to pin CIDs: %s", resp.Error)
+	}
+
+	return nil
 }
 
 func (s *Server) getBlockchainAPIProfile(wallet WalletInfo) (blockchain.Profile, bool) {
@@ -700,6 +746,10 @@ func (s *Server) handleShowImages(cmd *message.Command, c *connInfo) error {
 		}
 	}
 
+	return formatErrList(errs)
+}
+
+func formatErrList(errs []error) error {
 	var retErr error
 	for _, err := range errs {
 		if retErr == nil {

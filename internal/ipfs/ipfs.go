@@ -20,7 +20,9 @@ const (
 	ipfsCmd = "ipfs"
 
 	// Sub-commands
+	addSubCmd   = "add"
 	peersSubCmd = "peers"
+	pinSubCmd   = "pin"
 	swarmSubCmd = "swarm"
 )
 
@@ -87,6 +89,16 @@ func LaunchSingletonKubo() error {
 	_, err = dockerutil.DockerExec(kuboSingletonContainerName, ipfsCmd, swarmSubCmd, peersSubCmd)
 	if err != nil {
 		return fmt.Errorf("error executing swarm peers: %s", err)
+	}
+
+	return nil
+}
+
+func PinAdd(cids []string) error {
+	ipfsPinAddArgs := []string{ipfsCmd, pinSubCmd, addSubCmd}
+	_, err := dockerutil.DockerExec(kuboSingletonContainerName, append(ipfsPinAddArgs, cids...)...)
+	if err != nil {
+		return fmt.Errorf("executing ipfs pin add: %s", err)
 	}
 
 	return nil

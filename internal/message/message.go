@@ -32,12 +32,13 @@ const (
 	ShowImagesCmd Op = "showImages"
 	ListFilesCmd  Op = "listFiles"
 
-	AddWalletCmd               Op = "addWallet"
-	GetWalletsCmd              Op = "getWallets"
-	RemoveWalletCmd            Op = "removeWallet"
-	AddBlockchainAPIProfile    Op = "addBlockchainAPIProfile"
-	GetBlockchainAPIProfiles   Op = "getBlockchainAPIProfiles"
-	RemoveBlockchainAPIProfile Op = "removeBlockchainAPIProfile"
+	AddWalletCmd                  Op = "addWallet"
+	GetWalletsCmd                 Op = "getWallets"
+	RemoveWalletCmd               Op = "removeWallet"
+	AddBlockchainAPIProfileCmd    Op = "addBlockchainAPIProfile"
+	GetBlockchainAPIProfilesCmd   Op = "getBlockchainAPIProfiles"
+	RemoveBlockchainAPIProfileCmd Op = "removeBlockchainAPIProfile"
+	PinAddCmd                     Op = "pinAdd"
 )
 
 type CommandPayload struct {
@@ -52,6 +53,11 @@ type CommandPayload struct {
 	RemoveWalletPayload               *RemoveWalletPayload               `json:"removeWalletPayload,omitempty"`
 	AddBlockchainAPIProfilePayload    *AddBlockchainAPIProfilePayload    `json:"addBlockchainAPIProfilePayload,omitempty"`
 	RemoveBlockchainAPIProfilePayload *RemoveBlockchainAPIProfilePayload `json:"removeBlockchainAPIProfilePayload,omitempty"`
+	PinSetPayload                     *PinSetPayload                     `json:"pinAddPayload,omitempty"`
+}
+
+type PinSetPayload struct {
+	CIDs []string `json:"contentIDs,omitempty"`
 }
 
 type ConfigSetPayload struct {
