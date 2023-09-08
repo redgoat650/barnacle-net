@@ -52,6 +52,196 @@ func ListNodes(refresh bool) error {
 	return displayJSON(resp.Payload.ListNodesResponse)
 }
 
+func AddWallet(walletID, desc, prof string) error {
+	t, err := connect()
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		fmt.Println("closing websocket:", t.GracefullyClose())
+	}()
+
+	cmd := &message.Command{
+		Op: message.AddWalletCmd,
+		Payload: &message.CommandPayload{
+			AddWalletPayload: &message.AddWalletPayload{
+				WalletID:    walletID,
+				Description: desc,
+				UseProfile:  prof,
+			},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	resp, err := t.SendCommandWaitResponse(ctx, cmd)
+	if err != nil {
+		return err
+	}
+
+	if !resp.Success {
+		return fmt.Errorf("error adding wallet %s: %s", walletID, resp.Error)
+	}
+
+	return nil
+}
+
+func ListWallets() ([]message.WalletInfo, error) {
+	t, err := connect()
+	if err != nil {
+		return nil, err
+	}
+
+	cmd := &message.Command{
+		Op: message.GetWalletsCmd,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	resp, err := t.SendCommandWaitResponse(ctx, cmd)
+	if err != nil {
+		return nil, err
+	}
+
+	if !resp.Success {
+		return nil, fmt.Errorf("error listing wallets: %s", resp.Error)
+	}
+
+	return resp.Payload.GetWalletsResponse.Items, nil
+}
+
+func RemoveWallet(walletID string) error {
+	t, err := connect()
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		fmt.Println("closing websocket:", t.GracefullyClose())
+	}()
+
+	cmd := &message.Command{
+		Op: message.RemoveWalletCmd,
+		Payload: &message.CommandPayload{
+			RemoveWalletPayload: &message.RemoveWalletPayload{
+				WalletID: walletID,
+			},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	resp, err := t.SendCommandWaitResponse(ctx, cmd)
+	if err != nil {
+		return err
+	}
+
+	if !resp.Success {
+		return fmt.Errorf("error removing wallet %s: %s", walletID, resp.Error)
+	}
+
+	return nil
+}
+
+func CreateBCProfile(name, chain, apiKey string) error {
+	t, err := connect()
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		fmt.Println("closing websocket:", t.GracefullyClose())
+	}()
+
+	cmd := &message.Command{
+		Op: message.AddBlockchainAPIProfileCmd,
+		Payload: &message.CommandPayload{
+			AddBlockchainAPIProfilePayload: &message.AddBlockchainAPIProfilePayload{
+				Name:   name,
+				Chain:  chain,
+				APIKey: []byte(apiKey),
+			},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	resp, err := t.SendCommandWaitResponse(ctx, cmd)
+	if err != nil {
+		return err
+	}
+
+	if !resp.Success {
+		return fmt.Errorf("error sending add blockchain API profile: %s", resp.Error)
+	}
+
+	return nil
+}
+
+func ListProfiles() ([]message.BCProfile, error) {
+	t, err := connect()
+	if err != nil {
+		return nil, err
+	}
+
+	cmd := &message.Command{
+		Op: message.GetBlockchainAPIProfilesCmd,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	resp, err := t.SendCommandWaitResponse(ctx, cmd)
+	if err != nil {
+		return nil, err
+	}
+
+	if !resp.Success {
+		return nil, fmt.Errorf("error listing profiles: %s", resp.Error)
+	}
+
+	return resp.Payload.GetBlockchainAPIProfilesResponse.Items, nil
+}
+
+func RemoveBCProfile(name string) error {
+	t, err := connect()
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		fmt.Println("closing websocket:", t.GracefullyClose())
+	}()
+
+	cmd := &message.Command{
+		Op: message.RemoveBlockchainAPIProfileCmd,
+		Payload: &message.CommandPayload{
+			RemoveBlockchainAPIProfilePayload: &message.RemoveBlockchainAPIProfilePayload{
+				Name: name,
+			},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	resp, err := t.SendCommandWaitResponse(ctx, cmd)
+	if err != nil {
+		return err
+	}
+
+	if !resp.Success {
+		return fmt.Errorf("error sending add blockchain API profile: %s", resp.Error)
+	}
+
+	return nil
+}
+
 func displayJSON(p any) error {
 	b, err := json.MarshalIndent(p, "", "  ")
 	if err != nil {

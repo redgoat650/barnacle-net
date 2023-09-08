@@ -191,7 +191,7 @@ func (s *Server) monitorWallets() {
 	for {
 		s.processWallets()
 
-		time.Sleep(1 * time.Minute)
+		time.Sleep(10 * time.Minute)
 	}
 }
 
