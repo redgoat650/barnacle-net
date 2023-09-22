@@ -57,7 +57,7 @@ func RunServer(v *viper.Viper) error {
 
 	log.Println("Serving at", addr)
 
-	s.monitorWallets()
+	go s.monitorWallets()
 
 	return http.ListenAndServe(addr, nil)
 }
