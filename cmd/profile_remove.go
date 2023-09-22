@@ -54,5 +54,5 @@ var profileRemoveCmd = &cobra.Command{
 
 func init() {
 	profileCmd.AddCommand(profileRemoveCmd)
-	profileCreateCmd.Flags().StringP("name", "n", "", "Name of profile to remove")
+	profileRemoveCmd.Flags().StringP("name", "n", "", "Name of profile to remove")
 }
