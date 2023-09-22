@@ -22,8 +22,6 @@ THE SOFTWARE.
 package cmd
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 )
 
@@ -32,9 +30,6 @@ var walletCmd = &cobra.Command{
 	Use:   "wallet",
 	Short: "Controls for connected crypto wallets",
 	Long:  `Controls for connected crypto wallets.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("wallet called")
-	},
 }
 
 func init() {

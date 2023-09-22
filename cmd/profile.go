@@ -22,8 +22,6 @@ THE SOFTWARE.
 package cmd
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 )
 
@@ -32,9 +30,6 @@ var profileCmd = &cobra.Command{
 	Use:   "profile",
 	Short: "Profile commands",
 	Long:  `Profile commands.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("profile called")
-	},
 }
 
 func init() {
