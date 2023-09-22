@@ -22,8 +22,6 @@ THE SOFTWARE.
 package cmd
 
 import (
-	"fmt"
-
 	"github.com/redgoat650/barnacle-net/internal/config"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -39,9 +37,6 @@ var barnacleCmd = &cobra.Command{
 	Use:   "barnacle",
 	Short: "Control barnacle nodes",
 	Long:  `Control barnacle nodes.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("barnacle called")
-	},
 }
 
 func init() {

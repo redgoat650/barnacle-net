@@ -22,8 +22,6 @@ THE SOFTWARE.
 package cmd
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 )
 
@@ -33,9 +31,6 @@ var filesystemCmd = &cobra.Command{
 	Aliases: []string{"fs"},
 	Short:   "Access the barnacle net filesystem.",
 	Long:    `Access the barnacle net filesystem.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("filesystem called")
-	},
 }
 
 func init() {
